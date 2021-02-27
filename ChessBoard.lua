@@ -1,5 +1,3 @@
--- TODO stalemate, checkmate
--- TODO game saving
 -- TODO uninteractable enemy pieces except to capture
 -- TODO marker squares: more opaque on white tiles
 -- TODO previous turn: mark squares yellow
@@ -16,17 +14,6 @@ INFO = {
 }
 
 game = {}
-for i=1,8 do
-  game[i] = {{},{},{},{},{},{},{},{}}
-end
-game.white_castle = true
-game.white_qcastle = true
-game.black_castle = true
-game.black_qcastle = true
-game.white_king = {1, 5}
-game.black_king = {8, 5}
-game.is_white_turn = true
-game.en_passant_coord = nil
 promo = {}
 
 -- Buttons 170 width/height, 593 xyoffset
@@ -36,63 +23,152 @@ function onLoad(save_state)
   -- self.interactable = false
   Turns.enable = true
   Turns.pass_turns = false
+  if save_state and save_state ~= '' then
+    game = JSON.decode(save_state)
+  else
+    startBoardStatus()
+  end
+  local del_objs = getObjectFromGUID('1ab955').getObjects()
+  for _,del_obj in ipairs(del_objs) do
+    if del_obj ~= self then
+      del_obj.destruct()
+    end
+  end
   setup()
 end
 
+function onSave()
+  local copy = {['board']={}}
+  for i=1,8 do
+    copy.board[i] = {{},{},{},{},{},{},{},{}}
+  end
+  for i,row in ipairs(game.board) do
+    for j,sq in ipairs(row) do
+      if sq.ptype then
+        local copy_sq = copy.board[i][j]
+        copy_sq.ptype = sq.ptype
+        copy_sq.white = sq.white
+        copy_sq.specials = {}
+      end
+    end
+  end
+  copy.white_to_move = game.white_to_move
+  copy.white, copy.black = game.white, game.black
+  copy.en_passant_coord = game.en_passant_coord
+  return JSON.encode(copy)
+end
+
+function startBoardStatus()
+  game = {}
+  game.board = {}
+  for i=1,8 do
+    game.board[i] = {{},{},{},{},{},{},{},{}}
+  end
+  game.white_to_move = true
+  game.white, game.black = {}, {}
+  game.white.castle, game.black.castle = true, true
+  game.white.qcastle, game.black.qcastle = true, true
+  game.white.in_check, game.black.in_check = false, false
+  game.white.king, game.black.king = {1, 5}, {8, 5}
+  game.en_passant_coord = nil
+  game.last_move_from, game.last_move_to = nil, nil
+
+  local set_coord = function(coord, ptype, white)
+    setSquareAt(coord, {
+      ptype = ptype,
+      white = white,
+      specials = {}
+      -- Special fields: move, castle, en passant, double_move
+    })
+  end
+
+  local set_side = function(white)
+    local backRank = white and 1 or 8
+    local frontRank = white and 2 or 7
+
+    set_coord({backRank, 1}, 'R', white)
+    set_coord({backRank, 2}, 'N', white)
+    set_coord({backRank, 3}, 'B', white)
+    set_coord({backRank, 4}, 'Q', white)
+    set_coord({backRank, 5}, 'K', white)
+    set_coord({backRank, 6}, 'B', white)
+    set_coord({backRank, 7}, 'N', white)
+    set_coord({backRank, 8}, 'R', white)
+
+    for file=1,8 do
+      set_coord({frontRank, file}, 'P', white)
+    end
+  end
+
+  set_side(true)
+  set_side(false)
+end
+
 function setup()
-  local setupPiece = function(coord, ptype, white)
+  local setup_square = function(coord, ptype, white)
     local bag_guid = white and 'wbag_guid' or 'bbag_guid'
-    local piece = getObjectFromGUID(INFO[ptype][bag_guid]).takeObject({
-      position=coordToPos(coord, ptype),
-      rotation={0, white and 180 or 0, 0},
+    getObjectFromGUID(INFO[ptype][bag_guid]).takeObject({
+      position = coordToPos(coord, ptype),
+      rotation = {0, white and 180 or 0, 0},
       smooth = false,
       callback_function = function(p)
-        setSquareAt(coord, {
-          piece = p,
-          ptype = ptype,
-          white = white,
-          specials = {}
-        })
-        -- Special fields: move, castle, en passant, promote
+        squareAt(coord).piece = p
       end
     })
   end
 
-  local setupSide = function(white)
-    local backRank = white and 1 or 8
-    local frontRank = white and 2 or 7
+  local xml_table = {}
+  local START, STOP = -592, 592
+  local step = (STOP - START) / 7.0
 
-    local file = 1
-    setupPiece({backRank, file}, 'R', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'N', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'B', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'Q', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'K', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'B', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'N', white)
-    file = file + 1
-    setupPiece({backRank, file}, 'R', white)
-
-    for file=1,8 do
-      setupPiece({frontRank, file}, 'P', white)
+  for i=1,8 do
+    for j=1,8 do
+      local coord = {i, j}
+      local sq = squareAt(coord)
+      if sq.ptype then
+        setup_square(coord, sq.ptype, sq.white)
+      end
+      table.insert(xml_table, {
+        tag = 'Image',
+        attributes = {
+          id = string.format("i%d%d", i, j),
+          width = step, height = step,
+          offsetXY = string.format("%f %f",
+            START + (j - 1) * step,
+            START + (i - 1) * step
+          ),
+          color = "#00000000",
+        }
+      })
+      table.insert(xml_table, {
+        tag = 'Button',
+        attributes = {
+          id = string.format("%d%d", i, j),
+          active = false,
+          width = step, height = step,
+          offsetXY = string.format("%f %f",
+            START + (j - 1) * step,
+            START + (i - 1) * step
+          ),
+          icon = 'circle',
+          color = '#00000000',
+          onClick = 'buttonClicked',
+          onMouseEnter = 'buttonEntered',
+          onMouseExit = 'buttonExited'
+          -- Alpha 0x97
+        }
+      })
     end
   end
 
-  setupSide(true)
-  setupSide(false)
-  Turns.turn_color = 'White'
+  self.UI.setXmlTable(xml_table)
+  Turns.turn_color = game.white_to_move and 'White' or 'Green'
 end
 
 local active = nil
 local first_pickup = false
 function onObjectPickUp(player_color, picked_up_object)
-  local cur_color = game.is_white_turn and 'White' or 'Green'
+  local cur_color = game.white_to_move and 'White' or 'Green'
   if player_color ~= cur_color then
     broadcastToColor('It is not your turn.', player_color)
     picked_up_object.setVelocity({0,0,0})
@@ -103,14 +179,13 @@ function onObjectPickUp(player_color, picked_up_object)
 
   local promo_type = picked_up_object.getVar('promo_selection')
   if promo_type then
-    log(promo_type)
     for _,obj in ipairs(promo.selections) do
       obj.destruct()
     end
 
     squareAt(promo.pawn_coord).piece.destruct()
     local pos = coordToPos(promo.pawn_coord, promo_type)
-    local bag = getObjectFromGUID(INFO[promo_type][game.is_white_turn and 'wbag_guid' or 'bbag_guid'])
+    local bag = getObjectFromGUID(INFO[promo_type][game.white_to_move and 'wbag_guid' or 'bbag_guid'])
     local promoted_piece = bag.takeObject({position = pos, smooth = false})
     squareAt(promo.pawn_coord).piece = promoted_piece
     squareAt(promo.pawn_coord).ptype = promo_type
@@ -123,24 +198,56 @@ function onObjectPickUp(player_color, picked_up_object)
   if not coord then return end
   local square = squareAt(coord)
 
-  if square and square.piece then
-    if square.white == game.is_white_turn then
-      if coordEquals(coord, active) then return end
-      clearPreviews()
-      first_pickup = true
-      active = coord
-      picked_up_object.use_gravity = false
-      showMoves(coord)
-    elseif square.specials.move then
-      clearPreviews()
-      moveTo(coord, square)
-    else
-      broadcastToColor('This is not your piece.', game.is_white_turn and 'White' or 'Green')
-      picked_up_object.drop()
-      picked_up_object.setVelocity({0,-10,0})
-      picked_up_object.setAngularVelocity({0,0,0})
-    end
+  if square and square.piece and (square.white == game.white_to_move) then
+    if coordEquals(coord, active) then return end
+    clearPreviews()
+    first_pickup = true
+    active = coord
+    picked_up_object.use_gravity = false
+    showMoves(coord)
+  end
+end
 
+function buttonClicked(player, button, id)
+  if (button == '-1')
+      -- and ((game.white_to_move and 'White' or 'Green') == player.color)
+      then
+
+    local num = tonumber(id)
+    local coord = {math.floor(num / 10), num % 10}
+    local click_specials = squareAt(coord).specials
+    clearPreviews()
+    moveTo(coord, click_specials)
+  end
+end
+
+function buttonEntered(player, _, id)
+  if true
+      -- and ((game.white_to_move and 'White' or 'Green') == player.color)
+      then
+
+    local num = tonumber(id)
+    local sq = squareAt({math.floor(num / 10), num % 10})
+    if sq and sq.piece then
+      if sq.ptype ~= nil or sq.specials.en_passant then
+        sq.piece.highlightOn({1,0,0})
+      else
+        sq.piece.highlightOn({1,1,1})
+      end
+    end
+  end
+end
+
+function buttonExited(player, _, id)
+  if true
+      -- and ((game.white_to_move and 'White' or 'Green') == player.color)
+      then
+
+    local num = tonumber(id)
+    local sq = squareAt({math.floor(num / 10), num % 10})
+    if sq and sq.piece then
+      sq.piece.highlightOff()
+    end
   end
 end
 
@@ -161,8 +268,9 @@ function onObjectDrop(player_color, dropped_object)
     if not coord then
       raisePieceAt(active)
     elseif drop_sq.piece and drop_sq.specials.move then
+      local drop_specials = drop_sq.specials -- Preserves info cleared by clearPreviews()
       clearPreviews()
-      moveTo(coord, drop_sq) -- drop_sq preserves info cleared by clearPreviews()
+      moveTo(coord, drop_specials)
     elseif coordEquals(coord, active) then
       if first_pickup then
         raisePieceAt(active)
@@ -180,8 +288,12 @@ function onObjectDrop(player_color, dropped_object)
   -- log('file '..file)
 end
 
-function moveTo(dest, dest_square)
+function moveTo(dest, dest_specials)
   local src_square = squareAt(active)
+  local dest_square = squareAt(dest)
+  if not dest_specials then dest_specials = {} end
+  local cur_player = game.white_to_move and game.white or game.black
+
   if dest_square.piece then
     dest_square.piece.destruct()
   end
@@ -192,30 +304,24 @@ function moveTo(dest, dest_square)
   false, true)
   src_square.piece.use_gravity = true
 
-  if src_square.ptype == 'K' then
-    if game.is_white_turn then
-      game.white_king = dest
-    else
-      game.black_king = dest
-    end
-  end
-
   -- Handle en passant and remember double moves for en passant
-  local pawn_move = game.is_white_turn and 1 or -1
-  if dest_square.specials and src_square.ptype == 'P' then
-    if dest_square.specials.double_move then
+  local pawn_move = game.white_to_move and 1 or -1
+  local assigned_ep = false
+  if src_square.ptype == 'P' then
+    if dest_specials.double_move then
       game.en_passant_coord = {dest[1] - pawn_move, dest[2]}
-    else
-      game.en_passant_coord = nil
-      if dest_square.specials.en_passant then
-        squareAt({dest[1] - pawn_move, dest[2]}).piece.destruct()
-        setSquareAt({dest[1] - pawn_move, dest[2]}, {})
-      end
+      assigned_ep = true
+    elseif dest_specials.en_passant then
+      squareAt({dest[1] - pawn_move, dest[2]}).piece.destruct()
+      setSquareAt({dest[1] - pawn_move, dest[2]}, {})
     end
   end
+  if not assigned_ep then game.en_passant_coord = nil end
 
   if src_square.ptype == 'K' then
-    if dest_square.specials and dest_square.specials.castle then
+    cur_player.king = dest
+
+    if dest_specials.castle then
       local rook_file_src, rook_file_dest
       if dest[2] == 7 then
         rook_src, rook_dest = {dest[1], 8}, {dest[1], 6}
@@ -228,39 +334,39 @@ function moveTo(dest, dest_square)
       setSquareAt(rook_dest, squareAt(rook_src));
       setSquareAt(rook_src, {})
     end
-    if game.is_white_turn then
-      game.white_castle, game.white_qcastle = false, false
-    else
-      game.black_castle, game.black_qcastle = false, false
-    end
+    cur_player.castle, cur_player.qcastle = false, false
   end
 
   -- First rook move (invalidate castling on that side)
   if src_square.ptype == 'R' then
-    if game.is_white_turn then
-      if game.white_castle and coordEquals(active, {1, 8}) then
-        game.white_castle = false
-      elseif game.white_qcastle and coordEquals(active, {1, 1}) then
-        game.white_qcastle = false
-      end
-    else
-      if game.black_castle and coordEquals(active, {8, 8}) then
-        game.black_castle = false
-      elseif game.black_qcastle and coordEquals(active, {8, 1}) then
-        game.black_qcastle = false
-      end
+    local r_rank = game.white_to_move and 1 or 8
+    if cur_player.castle and coordEquals(active, {r_rank, 8}) then
+      cur_player.castle = false
+    elseif cur_player.qcastle and coordEquals(active, {r_rank, 1}) then
+      cur_player.qcastle = false
     end
   end
 
   setSquareAt(dest, src_square)
   setSquareAt(active, {})
 
-  if src_square.ptype == 'P' and dest[1] == (game.is_white_turn and 8 or 1) then
-    local bag_guid_field = game.is_white_turn and 'wbag_guid' or 'bbag_guid'
+  -- Clear red check highlight
+  highlightCoord(cur_player.king, "#00000000")
+  -- Clear previous move highlights
+  local from, to = game.last_move_from, game.last_move_to
+  if from and to then
+    highlightCoord(from, "00000000")
+    highlightCoord(to, "00000000")
+  end
+  game.last_move_from = active
+  game.last_move_to = dest
+
+  -- Pawn promotion
+  if src_square.ptype == 'P' and dest[1] == (game.white_to_move and 8 or 1) then
+    local bag_guid_field = game.white_to_move and 'wbag_guid' or 'bbag_guid'
     local ptypes = {'Q', 'N', 'R', 'B'}
     promo.selections = {}
     promo.pawn_coord = dest
-    log(promo.pawn_coord)
     local callback = function(obj, ptype)
       obj.setColorTint({1,1,1,0.4})
       obj.use_gravity = false
@@ -269,8 +375,8 @@ function moveTo(dest, dest_square)
     end
     for i=1,4 do
       local bag = getObjectFromGUID(INFO[ptypes[i]][bag_guid_field])
-      local j = game.is_white_turn and i or -i
-      local k = game.is_white_turn and 1 or -1
+      local j = game.white_to_move and i or -i
+      local k = game.white_to_move and 1 or -1
       local pos = coordToPos({dest[1] + pawn_move, dest[2] + j - k}, ptypes[i])
       bag.takeObject({position = pos, smooth = false,
           callback_function = function(obj) callback(obj, ptypes[i]) end})
@@ -282,14 +388,45 @@ end
 
 function passTurn()
   active = nil
-  game.is_white_turn = not game.is_white_turn
-  if isCheck(game.is_white_turn) then
-    broadcastToAll('CHECK', {1,1,1})
-    -- TODO check checkmate
-  else
-    -- TODO check stalemate
+  game.white_to_move = not game.white_to_move
+  local game_over = false
+
+  for i=1,8 do
+    for j=1,8 do
+      local sq = squareAt({i, j})
+      if sq.piece then
+        sq.piece.interactable = sq.white == game.white_to_move
+      end
+    end
   end
-  Turns.turn_color = game.is_white_turn and "White" or "Green"
+
+  local next_player = game.white_to_move and game.white or game.black
+  game.white.in_check, game.black.in_check = false, false
+  if isCheck(game.white_to_move) then
+    next_player.in_check = true
+    if not hasMoves(game.white_to_move) then
+      local winner = game.white_to_move and 'Black' or 'White'
+      broadcastToAll('CHECKMATE! ' .. winner .. ' wins!', {1,1,1})
+      game_over = true
+    else
+      broadcastToAll('CHECK', {1,1,1})
+      highlightCoord(next_player.king, "#FF000088")
+    end
+  else
+    if not hasMoves(game.white_to_move) then
+      broadcastToAll('STALEMATE!', {1,1,1})
+      game_over = true
+    end
+  end
+
+  highlightCoord(game.last_move_from, "#FFFF0055")
+  highlightCoord(game.last_move_to, "#FFFF0055")
+
+  if game_over then
+    -- TODO
+  else
+    Turns.turn_color = game.white_to_move and "White" or "Green"
+  end
 end
 
 local scan = {}
@@ -304,7 +441,7 @@ function scan:oppose(coord, ptypes)
   else
     square = squareAt(coord)
   end
-  local white = game.is_white_turn
+  local white = game.white_to_move
   if not square or not square.piece then return false end
   return square.white ~= white
     and (not ptypes or ptypes[square.ptype])
@@ -321,7 +458,7 @@ function scan:match(coord, ptypes, white)
   else
     square = squareAt(coord)
   end
-  if white == nil then white = game.is_white_turn end
+  if white == nil then white = game.white_to_move end
   if not square or not square.piece then return false end
   return square.white == white
     and (not ptypes or ptypes[square.ptype])
@@ -373,12 +510,17 @@ function clearPreviews()
   end
   for _,coord in ipairs(move_previews) do
     local square = squareAt(coord)
+    local id = string.format('%d%d', coord[1], coord[2])
+    self.UI.setAttribute(id, 'active', false)
     square.piece.destruct()
     setSquareAt(coord, {})
   end
   move_previews = {}
   for _,coord in ipairs(capture_previews) do
     local square = squareAt(coord)
+    local id = string.format('%d%d', coord[1], coord[2])
+    self.UI.setAttribute(id, 'color', '#00000000')
+    self.UI.setAttribute(id, 'active', false)
     square.piece.highlightOff()
     square.specials = {}
   end
@@ -398,8 +540,8 @@ end
 
 function moves_P(coord, stop)
   local rank, file = coord[1], coord[2]
-  local step = game.is_white_turn and 1 or -1
-  local start = game.is_white_turn and 2 or 7
+  local step = game.white_to_move and 1 or -1
+  local start = game.white_to_move and 2 or 7
   local moves, captures = {}, {}
   local double_move, en_passant
   local move
@@ -423,14 +565,12 @@ function moves_P(coord, stop)
   if scan:oppose(move) then
     if enter(coord, move, captures, stop) then return end
   elseif coordEquals(move, game.en_passant_coord) and validateMove(coord, move, nil, true) then
-    log("assinged ep")
     en_passant = move
   end
   move = {rank + step, file - 1}
   if scan:oppose(move) then
     if enter(coord, move, captures, stop) then return end
   elseif coordEquals(move, game.en_passant_coord) and validateMove(coord, move, nil, true) then
-    log("assinged ep")
     en_passant = move
   end
 
@@ -529,24 +669,21 @@ function moves_K(coord, stop)
   end
 
   local castles = {}
-  local home_rank, can_castle, can_qcastle
-  if game.is_white_turn then
-    home_rank = 1
-    can_castle = game.white_castle
-    can_qcastle = game.white_qcastle
-  else
-    home_rank = 8
-    can_castle = game.black_castle
-    can_qcastle = game.black_qcastle
-  end
+  local cur_player = game.white_to_move and game.white or game.black
 
-  -- log({game.white_castle, game.white_qcastle, game.black_castle, game.black_qcastle})
-  if rank == home_rank then
-    if can_castle and scan:empty({rank, 6}) and scan:empty({rank, 7}) then
+  -- log({game.white.castle, game.white.qcastle, game.black.castle, game.black.qcastle})
+  if not cur_player.in_check then
+    if cur_player.castle
+        and scan:empty({rank, 6})
+        and scan:empty({rank, 7}) then
       if validateMove(coord, {rank, 7}, true) then
         table.insert(castles, {rank, 7})
       end
-    elseif can_qcastle and scan:empty({rank, 2}) and scan:empty({rank, 3}) and scan:empty({rank, 4}) then
+    end
+    if cur_player.qcastle
+        and scan:empty({rank, 2})
+        and scan:empty({rank, 3})
+        and scan:empty({rank, 4}) then
       if validateMove(coord, {rank, 3}, true) then
         table.insert(castles, {rank, 3})
       end
@@ -588,7 +725,7 @@ function validateMove(from_coord, to_coord, castle, en_passant)
   end
 
   scan.changes = changes
-  local is_into_check = isCheck(game.is_white_turn)
+  local is_into_check = isCheck(game.white_to_move)
   scan.changes = nil
 
   return not is_into_check
@@ -599,27 +736,35 @@ function previewMove(from_coord, to_coord)
   local pos = coordToPos(to_coord, ptype)
 
   local bag = getObjectFromGUID(INFO[ptype][squareAt(from_coord).white and 'wbag_guid' or 'bbag_guid'])
-  local preview_piece = bag.takeObject({position = pos, smooth = false})
-  preview_piece.setColorTint({1,1,1,0.1})
+  local preview_piece = bag.takeObject({position = pos, smooth = false,
+      callback_function = function(p)
+        p.setColorTint({1,1,1,0})
+        p.interactable = false
+      end})
 
+  self.UI.setAttribute(string.format('%d%d', to_coord[1], to_coord[2]), 'active', true)
   setSquareAt(to_coord, {piece=preview_piece, specials={move=true}})
   table.insert(move_previews, to_coord)
 end
 
 function previewCapture(from_coord, to_coord)
   local target = squareAt(to_coord)
+  local id = string.format('%d%d', to_coord[1], to_coord[2])
+  self.UI.setAttributes(id, {
+    active = true,
+    color = '#00000097'
+  })
   target.specials.move = true
-  target.piece.highlightOn({1,0,0})
   table.insert(capture_previews, to_coord)
 end
 
 local knight_set = {N=true}
-local pawn_set = {P=true, Q=true, B=true}
-local diagonal_set = {B=true, Q=true}
-local orthogonal_set = {R=true, Q=true}
+local pawn_set = {P=true, Q=true, B=true, K=true}
+local diag_set, k_diag_set = {B=true, Q=true}, {B=true, Q=true, K=true}
+local ortho_set, k_ortho_set = {R=true, Q=true}, {R=true, Q=true, K=true}
 
 function isCheck(white)
-  local king = white and game.white_king or game.black_king
+  local king = (white and game.white or game.black).king
   if scan.changes then
     local changed_king = white and scan.changes.white_king or scan.changes.black_king
     if changed_king then king = changed_king end
@@ -627,10 +772,18 @@ function isCheck(white)
   local enemy = not white
   local r, f = king[1], king[2]
 
+  -- Look at surrounding 3x3, king included for validateMove()
   local p_rank = (white and 1 or -1)
-  if scan:match({r + p_rank, f + 1}, pawn_set, enemy) then return {r + p_rank, f + 1} end
-  if scan:match({r + p_rank, f - 1}, pawn_set, enemy) then return {r + p_rank, f - 1} end
+  if scan:match({r + p_rank, f + 1}, pawn_set, enemy) then return true end
+  if scan:match({r + p_rank, f - 1}, pawn_set, enemy) then return true end
+  if scan:match({r - p_rank, f + 1}, k_diag_set, enemy) then return true end
+  if scan:match({r - p_rank, f - 1}, k_diag_set, enemy) then return true end
+  if scan:match({r + 1, f}, k_ortho_set, enemy) then return true end
+  if scan:match({r - 1, f}, k_ortho_set, enemy) then return true end
+  if scan:match({r, f + 1}, k_ortho_set, enemy) then return true end
+  if scan:match({r, f - 1}, k_ortho_set, enemy) then return true end
 
+  -- Look across a line for certain pieces
   local look_line = function(step_i, step_j, ptypes)
     local i, j = step_i, step_j
     while true do
@@ -638,37 +791,54 @@ function isCheck(white)
       if scan:empty(coord) then
         i, j = i + step_i, j + step_j
       elseif scan:match(coord, ptypes, enemy) then
-        return coord
+        return true
       else
         break
       end
     end
-    return nil
+    return false
   end
 
-  if scan:match({r + 1, f + 2}, knight_set, enemy) then return {r + 1, f + 2} end
-  if scan:match({r + 2, f + 1}, knight_set, enemy) then return {r + 2, f + 1} end
-  if scan:match({r + 1, f - 2}, knight_set, enemy) then return {r + 1, f - 2} end
-  if scan:match({r + 2, f - 1}, knight_set, enemy) then return {r + 2, f - 1} end
-  if scan:match({r - 1, f + 2}, knight_set, enemy) then return {r - 1, f + 2} end
-  if scan:match({r - 2, f + 1}, knight_set, enemy) then return {r - 2, f + 1} end
-  if scan:match({r - 1, f - 2}, knight_set, enemy) then return {r - 1, f - 2} end
-  if scan:match({r - 2, f - 1}, knight_set, enemy) then return {r - 2, f - 1} end
+  if scan:match({r + 1, f + 2}, knight_set, enemy) then return true end
+  if scan:match({r + 2, f + 1}, knight_set, enemy) then return true end
+  if scan:match({r + 1, f - 2}, knight_set, enemy) then return true end
+  if scan:match({r + 2, f - 1}, knight_set, enemy) then return true end
+  if scan:match({r - 1, f + 2}, knight_set, enemy) then return true end
+  if scan:match({r - 2, f + 1}, knight_set, enemy) then return true end
+  if scan:match({r - 1, f - 2}, knight_set, enemy) then return true end
+  if scan:match({r - 2, f - 1}, knight_set, enemy) then return true end
 
   return
-    look_line(1, 1, diagonal_set)
-    or look_line(1, -1, diagonal_set)
-    or look_line(-1, 1, diagonal_set)
-    or look_line(-1, -1, diagonal_set)
+    look_line(1, 1, diag_set)
+    or look_line(1, -1, diag_set)
+    or look_line(-1, 1, diag_set)
+    or look_line(-1, -1, diag_set)
 
-    or look_line(1, 0, orthogonal_set)
-    or look_line(0, 1, orthogonal_set)
-    or look_line(-1, 0, orthogonal_set)
-    or look_line(0, -1, orthogonal_set)
+    or look_line(1, 0, ortho_set)
+    or look_line(0, 1, ortho_set)
+    or look_line(-1, 0, ortho_set)
+    or look_line(0, -1, ortho_set)
 end
 
 function hasMoves(white)
-  -- TODO
+  local start, stop, step
+  if white then
+    start, stop, step = 1, 8, 1
+  else
+    start, stop, step = 8, 1, -1
+  end
+  for i=start,stop,step do
+    for j=start,stop,step do
+      local coord = {i, j}
+      local sq = squareAt(coord)
+      if sq.ptype
+          and sq.white == white
+          and _G['moves_' .. sq.ptype](coord, true) == nil then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 --------------------------------
@@ -714,11 +884,18 @@ function coordEquals(a, b)
 end
 
 function squareAt(coord)
-  if not game[coord[1]] then return end
-  return game[coord[1]][coord[2]]
+  if not game.board[coord[1]] then return end
+  return game.board[coord[1]][coord[2]]
 end
 function setSquareAt(coord, val)
-  game[coord[1]][coord[2]] = val
+  game.board[coord[1]][coord[2]] = val
+end
+
+function highlightCoord(coord, color)
+  self.UI.setAttribute(
+    string.format("i%d%d", coord[1], coord[2]),
+    "color", color
+  )
 end
 
 function debug_printBoard()
