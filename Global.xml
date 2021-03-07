@@ -1,0 +1,43 @@
+<!-- Xml UI. See documentation: https://api.tabletopsimulator.com/ui/introUI/ -->
+
+<VerticalLayout
+  id="white_timers" active="false"
+  width="200" height="200"
+  color="#888888"
+  visibility="White|Brown|Red|Orange|Yellow|Teal|Blue|Purple|Pink|Grey|Black"
+  rectAlignment="MiddleRight"
+  allowDragging="true"
+  returnToOriginalPositionWhenReleased="false"
+>
+  <Text
+    id="black_as_opp"
+    color="Black"
+    fontSize="60">
+  </Text>
+  <Text
+    id="white_as_self"
+    color="White"
+    fontSize="60">
+  </Text>
+</VerticalLayout>
+
+<VerticalLayout
+  id="black_timers" active="false"
+  width="200" height="200"
+  color="#888888"
+  visibility="Green"
+  rectAlignment="MiddleRight"
+  allowDragging="true"
+  returnToOriginalPositionWhenReleased="false"
+>
+  <Text
+    id="white_as_opp"
+    color="White"
+    fontSize="60">
+  </Text>
+  <Text
+    id="black_as_self"
+    color="Black"
+    fontSize="60">
+  </Text>
+</VerticalLayout>

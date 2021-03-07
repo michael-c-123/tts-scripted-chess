@@ -1,8 +1,4 @@
--- TODO uninteractable enemy pieces except to capture
--- TODO marker squares: more opaque on white tiles
--- TODO previous turn: mark squares yellow
--- TODO check: mark square red
--- TODO logging moves
+-- TODO turn counter?
 
 INFO = {
   ['P'] = {height=2.77, wbag_guid='b795f6', bbag_guid='c70db4'},
@@ -12,7 +8,7 @@ INFO = {
   ['Q'] = {height=3.4, wbag_guid='b87cbe', bbag_guid='7d6441'},
   ['K'] = {height=3.51, wbag_guid='68baf5', bbag_guid='66aa94'}
 }
-
+ALL_BUT_GREEN = 'White|Brown|Red|Orange|Yellow|Teal|Blue|Purple|Pink|Grey|Black'
 game = {}
 promo = {}
 
@@ -20,25 +16,73 @@ promo = {}
 
 function onLoad(save_state)
   self.setSnapPoints({})
-  -- self.interactable = false
+  self.interactable = false
   Turns.enable = true
   Turns.pass_turns = false
+
+  clearBoard()
+
   if save_state and save_state ~= '' then
     game = JSON.decode(save_state)
+    setup()
+
+    local check_check = function(player)
+      if player.in_check then
+        highlightCoord(player.king, "#FF000088")
+        if not game.over then
+          broadcastToAll('Check!', {1,1,1})
+        end
+      end
+    end
+    check_check(game.white)
+    check_check(game.black)
+    if game.last_move_from then
+      highlightCoord(game.last_move_from, "#FFFF0055")
+      highlightCoord(game.last_move_to, "#FFFF0055")
+    end
+
+    if game.over then
+      gameOver(game.over_code, game.over_msg)
+    elseif game.timed then
+      Global.UI.setAttribute('white_timers', 'active', true)
+      Global.UI.setAttribute('black_timers', 'active', true)
+      updateTimers()
+      Wait.time(function()
+        game.white.delta_time = os.clock()
+        game.black.delta_time = game.white.delta_time
+        time_live = true
+      end, 3)
+    end
   else
-    startBoardStatus()
+    self.UI.setAttribute('main', 'active', true)
   end
+
+end
+
+function clearBoard()
   local del_objs = getObjectFromGUID('1ab955').getObjects()
   for _,del_obj in ipairs(del_objs) do
     if del_obj ~= self then
       del_obj.destruct()
     end
   end
-  setup()
+  for i=1,8 do
+    for j=1,8 do
+      self.UI.setAttribute(string.format("i%d%d", i, j), 'color', '#00000000')
+      self.UI.setAttribute(string.format("%d%d", i, j), 'active', false)
+    end
+  end
 end
 
 function onSave()
-  local copy = {['board']={}}
+  if not game.board then return end
+
+  -- Create a copy with no piece references or specials
+  local copy = {}
+  for orig_key, orig_value in pairs(game) do
+      copy[orig_key] = orig_value
+  end
+  copy.board = {}
   for i=1,8 do
     copy.board[i] = {{},{},{},{},{},{},{},{}}
   end
@@ -52,14 +96,143 @@ function onSave()
       end
     end
   end
-  copy.white_to_move = game.white_to_move
-  copy.white, copy.black = game.white, game.black
-  copy.en_passant_coord = game.en_passant_coord
+
   return JSON.encode(copy)
 end
 
+local menu_selected = 'untimed'
+local menu_pool, menu_incr = '', ''
+local menu_randomize = false
+function menuClicked(_, button, id)
+  if button == '-1' then
+    menu_selected = id
+  end
+end
+function menuTimedSwitched(_, on)
+  local enable = on == 'True'
+  self.UI.setAttribute('pool', 'interactable', enable)
+  self.UI.setAttribute('incr', 'interactable', enable)
+end
+function menuRandomizeSwitched(_, on)
+  menu_randomize = on == 'True'
+end
+function menuPoolEdited(_, text) menu_pool = text end
+function menuIncrEdited(_, text) menu_incr = text end
+function startClicked(player, button, id)
+  if button == '-1' then
+    local do_randomize = function() end
+    if menu_randomized then
+      if Player['White'].seated and Player['Green'].seated then
+        do_randomize = function()
+          if math.random() < 0.5 then
+            Player['Green'].changeColor('White')
+          end
+        end
+      else
+        broadcastToColor('Players must be seated at White and Green.', player.color, {1,1,1})
+      end
+    end
+
+    if menu_selected == 'untimed' then
+      Global.UI.setAttribute('white_timers', 'active', 'false')
+      Global.UI.setAttribute('black_timers', 'active', 'false')
+      do_randomize()
+      startBoardStatus()
+      setup()
+    elseif menu_selected == 'stopwatched' then
+      do_randomize()
+      startBoardStatus()
+      setup()
+      setupTimers()
+    else
+      local pool, incr = 30, 0
+      if menu_pool ~= '' then pool = tonumber(menu_pool) end
+      if menu_incr ~= '' then incr = tonumber(menu_incr) end
+      if pool and incr and pool > 0 and incr >= 0 then
+        do_randomize()
+        startBoardStatus()
+        setup()
+        setupTimers(pool * 60, incr)
+      else
+        broadcastToColor('Invalid time settings.', player.color, {1,1,1})
+      end
+    end
+
+  end
+end
+
+local resign = {white_resign = false, black_resign = false}
+function ctrlResign(player, button)
+  local who_str = (player.color == 'White') and 'white_resign' or 'black_resign'
+  if button == '-2' and resign[who_str] then
+    gameOver(player.color ~= 'White', 'by resignation')
+  elseif button == '-1' then
+    resign[who_str] = not resign[who_str]
+    if resign[who_str] then
+      self.UI.setAttribute(who_str, 'colors', '#888888|#888888|#FFFFFF|#FFFFFF')
+      self.UI.setAttribute(who_str, 'text', 'Left click to cancel\nRight click to confirm')
+    else
+      self.UI.setAttribute(who_str, 'colors', '#FFFFFF|#FFFFFF|#888888|#FFFFFF')
+      self.UI.setAttribute(who_str, 'text', 'Resign')
+    end
+  end
+end
+
+local draw = {white_draw = false, black_draw = false}
+function ctrlDraw(player, on)
+  local who_str = (player.color == 'White') and 'white_draw' or 'black_draw'
+  local other_str = (player.color == 'White') and 'black_draw' or 'white_draw'
+  draw[who_str] = on == 'True'
+  if draw[who_str] then
+    if draw[other_str] then
+      gameOver(nil, 'by agreement')
+    else
+      local to_player = (player.color == 'White') and 'Green' or 'White'
+      if Player[to_player].seated then
+        broadcastToColor('Draw offered by opponent', to_player)
+      end
+      self.UI.setAttribute(who_str, 'text', 'Wating for response')
+      self.UI.setAttribute(other_str, 'text', 'Accept draw')
+    end
+  else
+    self.UI.setAttribute(who_str, 'text', 'Offer Draw')
+    self.UI.setAttribute(other_str, 'text', 'Offer Draw')
+  end
+end
+
+local rematch = {white_rematch = false, black_rematch = false}
+function ctrlRematch(player, on)
+  local who_str = (player.color == 'White') and 'white_rematch' or 'black_rematch'
+  local other_str = (player.color == 'White') and 'black_rematch' or 'white_rematch'
+  rematch[who_str] = on == 'True'
+  if rematch[who_str] and rematch[other_str] then
+    clearBoard()
+    game = {}
+    self.UI.setAttribute('white_rematch', 'active', false)
+    self.UI.setAttribute('black_rematch', 'active', false)
+    Global.UI.setAttribute('white_timers', 'active', false)
+    Global.UI.setAttribute('black_timers', 'active', false)
+    self.UI.setAttribute('main', 'active', true)
+  end
+end
+
+function ctrlReset()
+  resign = {white_resign = false, black_resign = false}
+  self.UI.setAttribute('white_resign', 'colors', '#FFFFFF|#FFFFFF|#888888|#FFFFFF')
+  self.UI.setAttribute('white_resign', 'text', 'Resign')
+  self.UI.setAttribute('black_resign', 'colors', '#FFFFFF|#FFFFFF|#888888|#FFFFFF')
+  self.UI.setAttribute('black_resign', 'text', 'Resign')
+  draw = {white_draw = false, black_draw = false}
+  self.UI.setAttribute('white_draw', 'text', 'Offer Draw')
+  self.UI.setAttribute('white_draw', 'isOn', false)
+  self.UI.setAttribute('black_draw', 'text', 'Offer Draw')
+  self.UI.setAttribute('black_draw', 'isOn', false)
+  rematch = {white_rematch = false, black_rematch = false}
+  self.UI.setAttribute('white_rematch', 'isOn', false)
+  self.UI.setAttribute('black_rematch', 'isOn', false)
+end
+
 function startBoardStatus()
-  game = {}
   game.board = {}
   for i=1,8 do
     game.board[i] = {{},{},{},{},{},{},{},{}}
@@ -72,6 +245,7 @@ function startBoardStatus()
   game.white.king, game.black.king = {1, 5}, {8, 5}
   game.en_passant_coord = nil
   game.last_move_from, game.last_move_to = nil, nil
+  game.turn = 1
 
   local set_coord = function(coord, ptype, white)
     setSquareAt(coord, {
@@ -112,14 +286,44 @@ function setup()
       rotation = {0, white and 180 or 0, 0},
       smooth = false,
       callback_function = function(p)
+        p.interactable = game.white_to_move == white
         squareAt(coord).piece = p
       end
     })
   end
 
-  local xml_table = {}
-  local START, STOP = -592, 592
-  local step = (STOP - START) / 7.0
+  -- local xml_table = self.UI.getXmlTable()
+  -- local START, STOP = -592, 592
+  -- local step = (STOP - START) / 7.0
+  -- table.insert(xml_table, {
+  --   tag = 'Image',
+  --   attributes = {
+  --     id = string.format("i%d%d", i, j),
+  --     width = step, height = step,
+  --     offsetXY = string.format("%f %f",
+  --       START + (j - 1) * step,
+  --       START + (i - 1) * step
+  --     ),
+  --     color = "#00000000",
+  --   }
+  -- })
+  -- table.insert(xml_table, {
+  --   tag = 'Button',
+  --   attributes = {
+  --     id = string.format("%d%d", i, j),
+  --     active = false,
+  --     width = step, height = step,
+  --     offsetXY = string.format("%f %f",
+  --       START + (j - 1) * step,
+  --       START + (i - 1) * step
+  --     ),
+  --     icon = 'circle',
+  --     color = '#00000000',
+  --     onClick = 'buttonClicked',
+  --     onMouseEnter = 'buttonEntered',
+  --     onMouseExit = 'buttonExited'
+  --   }
+  -- })
 
   for i=1,8 do
     for j=1,8 do
@@ -128,40 +332,15 @@ function setup()
       if sq.ptype then
         setup_square(coord, sq.ptype, sq.white)
       end
-      table.insert(xml_table, {
-        tag = 'Image',
-        attributes = {
-          id = string.format("i%d%d", i, j),
-          width = step, height = step,
-          offsetXY = string.format("%f %f",
-            START + (j - 1) * step,
-            START + (i - 1) * step
-          ),
-          color = "#00000000",
-        }
-      })
-      table.insert(xml_table, {
-        tag = 'Button',
-        attributes = {
-          id = string.format("%d%d", i, j),
-          active = false,
-          width = step, height = step,
-          offsetXY = string.format("%f %f",
-            START + (j - 1) * step,
-            START + (i - 1) * step
-          ),
-          icon = 'circle',
-          color = '#00000000',
-          onClick = 'buttonClicked',
-          onMouseEnter = 'buttonEntered',
-          onMouseExit = 'buttonExited'
-          -- Alpha 0x97
-        }
-      })
     end
   end
 
-  self.UI.setXmlTable(xml_table)
+  Wait.frames(function()
+    self.UI.setAttribute('main', 'active', 'false')
+    self.UI.setAttribute('white_ctrl', 'active', true)
+    self.UI.setAttribute('black_ctrl', 'active', true)
+    ctrlReset()
+  end, 2)
   Turns.turn_color = game.white_to_move and 'White' or 'Green'
 end
 
@@ -210,7 +389,8 @@ end
 
 function buttonClicked(player, button, id)
   if (button == '-1')
-      -- and ((game.white_to_move and 'White' or 'Green') == player.color)
+      and player.getHoverObject() == nil
+      and ((game.white_to_move and 'White' or 'Green') == player.color) -- DEBUG
       then
 
     local num = tonumber(id)
@@ -223,8 +403,10 @@ end
 
 function buttonEntered(player, _, id)
   if true
-      -- and ((game.white_to_move and 'White' or 'Green') == player.color)
+      and ((game.white_to_move and 'White' or 'Green') == player.color) -- DEBUG
       then
+    local held = player.getHoldingObjects()
+    if not held or #held > 0 then return end
 
     local num = tonumber(id)
     local sq = squareAt({math.floor(num / 10), num % 10})
@@ -240,9 +422,8 @@ end
 
 function buttonExited(player, _, id)
   if true
-      -- and ((game.white_to_move and 'White' or 'Green') == player.color)
+      and ((game.white_to_move and 'White' or 'Green') == player.color) -- DEBUG
       then
-
     local num = tonumber(id)
     local sq = squareAt({math.floor(num / 10), num % 10})
     if sq and sq.piece then
@@ -260,12 +441,14 @@ end
 
 function onObjectDrop(player_color, dropped_object)
   if not active then return false end
-  local coord = posToCoord(dropped_object.getPosition())
+  if (game.white_to_move and 'White' or 'Green') ~= player_color then return false end
   local active_sq = squareAt(active)
-  local drop_sq = coord and squareAt(coord)
 
   if active_sq.piece == dropped_object then
-    if not coord then
+    local coord = posToCoord(dropped_object.getPosition())
+    local drop_sq = coord and squareAt(coord)
+
+    if not coord then -- Outside the chessboard
       raisePieceAt(active)
     elseif drop_sq.piece and drop_sq.specials.move then
       local drop_specials = drop_sq.specials -- Preserves info cleared by clearPreviews()
@@ -279,13 +462,11 @@ function onObjectDrop(player_color, dropped_object)
         dropped_object.use_gravity = true
         active = nil
       end
-    else
+    else -- Attempted to drop at some random invalid square
       raisePieceAt(active)
     end
   end
   first_pickup = false
-  -- log('rank '..rank)
-  -- log('file '..file)
 end
 
 function moveTo(dest, dest_specials)
@@ -337,13 +518,23 @@ function moveTo(dest, dest_specials)
     cur_player.castle, cur_player.qcastle = false, false
   end
 
-  -- First rook move (invalidate castling on that side)
+  -- First rook move, invalidate castling on that side
   if src_square.ptype == 'R' then
     local r_rank = game.white_to_move and 1 or 8
     if cur_player.castle and coordEquals(active, {r_rank, 8}) then
       cur_player.castle = false
     elseif cur_player.qcastle and coordEquals(active, {r_rank, 1}) then
       cur_player.qcastle = false
+    end
+  end
+  -- Rook captured, invalidate castling for opponent on that side
+  if dest_square.ptype == 'R' then
+    local r_rank = game.white_to_move and 8 or 1
+    local opp_player = game.white_to_move and game.black or game.white
+    if opp_player.castle and coordEquals(dest, {r_rank, 8}) then
+      opp_player.castle = false
+    elseif opp_player.qcastle and coordEquals(dest, {r_rank, 1}) then
+      opp_player.qcastle = false
     end
   end
 
@@ -355,8 +546,8 @@ function moveTo(dest, dest_specials)
   -- Clear previous move highlights
   local from, to = game.last_move_from, game.last_move_to
   if from and to then
-    highlightCoord(from, "00000000")
-    highlightCoord(to, "00000000")
+    highlightCoord(from, "#00000000")
+    highlightCoord(to, "#00000000")
   end
   game.last_move_from = active
   game.last_move_to = dest
@@ -388,68 +579,66 @@ end
 
 function passTurn()
   active = nil
-  game.white_to_move = not game.white_to_move
-  local game_over = false
+
+  local next_player = game.white_to_move and game.black or game.white
+  local next_is_white = not game.white_to_move
 
   for i=1,8 do
     for j=1,8 do
       local sq = squareAt({i, j})
       if sq.piece then
-        sq.piece.interactable = sq.white == game.white_to_move
+        sq.piece.interactable = sq.white ~= game.white_to_move
       end
     end
   end
 
-  local next_player = game.white_to_move and game.white or game.black
+  local game_over_code, msg
   game.white.in_check, game.black.in_check = false, false
-  if isCheck(game.white_to_move) then
+  if isCheck(next_is_white) then
     next_player.in_check = true
-    if not hasMoves(game.white_to_move) then
-      local winner = game.white_to_move and 'Black' or 'White'
-      broadcastToAll('CHECKMATE! ' .. winner .. ' wins!', {1,1,1})
-      game_over = true
+    if not hasMoves(next_is_white) then
+      local winner = next_is_white and 'Black' or 'White'
+      msg = 'by checkmate'
+      game_over_code = not next_is_white
     else
-      broadcastToAll('CHECK', {1,1,1})
+      broadcastToAll('Check!', {1,1,1})
       highlightCoord(next_player.king, "#FF000088")
     end
   else
-    if not hasMoves(game.white_to_move) then
-      broadcastToAll('STALEMATE!', {1,1,1})
-      game_over = true
+    if not hasMoves(next_is_white) then
+      msg = 'by stalemate'
     end
   end
 
   highlightCoord(game.last_move_from, "#FFFF0055")
   highlightCoord(game.last_move_to, "#FFFF0055")
 
-  if game_over then
-    -- TODO
+  if msg then
+    gameOver(game_over_code, msg)
   else
+    if game.timed and game.increment and game.turn >= 2 then
+      local time_getter = game.white_to_move and game.white or game.black
+      time_getter.timer = time_getter.timer + game.increment
+      updateTimers(game.white_to_move)
+    end
+
+    game.white_to_move = next_is_white
+    next_player.delta_time = os.clock()
     Turns.turn_color = game.white_to_move and "White" or "Green"
+
+    if next_is_white then
+      game.turn = game.turn + 1
+      if game.timed and game.turn == 2 then
+        time_live = true
+      end
+    end
   end
 end
 
 local scan = {}
--- Returns whether there is a piece at COORD opposing the current player,
--- with ptype matching any in PTYPES (default: all)
-function scan:oppose(coord, ptypes)
-  local square
-  if self.changes
-      and self.changes[coord[1]]
-      and self.changes[coord[1]][coord[2]] then
-    square = self.changes[coord[1]][coord[2]]
-  else
-    square = squareAt(coord)
-  end
-  local white = game.white_to_move
-  if not square or not square.piece then return false end
-  return square.white ~= white
-    and (not ptypes or ptypes[square.ptype])
-end
 -- Returns whether there is a piece at COORD matching the player indicated
--- by WHITE (default: current player), with ptype matching any in PTYPES
--- (default: all)
-function scan:match(coord, ptypes, white)
+-- by WHITE, with ptype matching any in PTYPES (default: all)
+function scan:match(coord, white, ptypes)
   local square
   if self.changes
       and self.changes[coord[1]]
@@ -506,6 +695,7 @@ end
 function clearPreviews()
   if active then
     squareAt(active).piece.setVelocity({0,0,0})
+    squareAt(active).piece.use_gravity = true
     squareAt(active).piece.setPositionSmooth(coordToPos(active, squareAt(active).ptype), false, true)
   end
   for _,coord in ipairs(move_previews) do
@@ -519,7 +709,6 @@ function clearPreviews()
   for _,coord in ipairs(capture_previews) do
     local square = squareAt(coord)
     local id = string.format('%d%d', coord[1], coord[2])
-    self.UI.setAttribute(id, 'color', '#00000000')
     self.UI.setAttribute(id, 'active', false)
     square.piece.highlightOff()
     square.specials = {}
@@ -540,8 +729,8 @@ end
 
 function moves_P(coord, stop)
   local rank, file = coord[1], coord[2]
-  local step = game.white_to_move and 1 or -1
-  local start = game.white_to_move and 2 or 7
+  local step = squareAt(coord).white and 1 or -1
+  local start = squareAt(coord).white and 2 or 7
   local moves, captures = {}, {}
   local double_move, en_passant
   local move
@@ -562,13 +751,13 @@ function moves_P(coord, stop)
 
   -- Diagonal captures
   move = {rank + step, file + 1}
-  if scan:oppose(move) then
+  if scan:match(move, not squareAt(coord).white) then
     if enter(coord, move, captures, stop) then return end
   elseif coordEquals(move, game.en_passant_coord) and validateMove(coord, move, nil, true) then
     en_passant = move
   end
   move = {rank + step, file - 1}
-  if scan:oppose(move) then
+  if scan:match(move, not squareAt(coord).white) then
     if enter(coord, move, captures, stop) then return end
   elseif coordEquals(move, game.en_passant_coord) and validateMove(coord, move, nil, true) then
     en_passant = move
@@ -585,7 +774,7 @@ function movesAcrossLine(coord, step_i, step_j, moves, captures, stop)
     if scan:empty(move) then
       if enter(coord, move, moves, stop) then return true end
       i, j = i + step_i, j + step_j
-    elseif scan:oppose(move) then
+    elseif scan:match(move, not squareAt(coord).white) then
       if enter(coord, move, captures, stop) then return true end
       break
     else
@@ -640,7 +829,7 @@ function moves_N(coord, stop)
   for _,move in ipairs(candidates) do
     if scan:empty(move) then
       if enter(coord, move, moves, stop) then return end
-    elseif scan:oppose(move) then
+    elseif scan:match(move, not squareAt(coord).white) then
       if enter(coord, move, captures, stop) then return end
     end
   end
@@ -663,15 +852,14 @@ function moves_K(coord, stop)
   for _,move in ipairs(candidates) do
     if scan:empty(move) then
       if enter(coord, move, moves, stop) then return end
-    elseif scan:oppose(move) then
+    elseif scan:match(move, not squareAt(coord).white) then
       if enter(coord, move, captures, stop) then return end
     end
   end
 
   local castles = {}
-  local cur_player = game.white_to_move and game.white or game.black
+  local cur_player = squareAt(coord).white and game.white or game.black
 
-  -- log({game.white.castle, game.white.qcastle, game.black.castle, game.black.qcastle})
   if not cur_player.in_check then
     if cur_player.castle
         and scan:empty({rank, 6})
@@ -725,7 +913,7 @@ function validateMove(from_coord, to_coord, castle, en_passant)
   end
 
   scan.changes = changes
-  local is_into_check = isCheck(game.white_to_move)
+  local is_into_check = isCheck(from_square.white)
   scan.changes = nil
 
   return not is_into_check
@@ -734,15 +922,17 @@ end
 function previewMove(from_coord, to_coord)
   local ptype = squareAt(from_coord).ptype
   local pos = coordToPos(to_coord, ptype)
+  local white = squareAt(from_coord).white
 
-  local bag = getObjectFromGUID(INFO[ptype][squareAt(from_coord).white and 'wbag_guid' or 'bbag_guid'])
+  local bag = getObjectFromGUID(INFO[ptype][white and 'wbag_guid' or 'bbag_guid'])
   local preview_piece = bag.takeObject({position = pos, smooth = false,
       callback_function = function(p)
         p.setColorTint({1,1,1,0})
         p.interactable = false
       end})
 
-  self.UI.setAttribute(string.format('%d%d', to_coord[1], to_coord[2]), 'active', true)
+  local id = string.format('%d%d', to_coord[1], to_coord[2])
+  self.UI.setAttribute(id, 'active', true)
   setSquareAt(to_coord, {piece=preview_piece, specials={move=true}})
   table.insert(move_previews, to_coord)
 end
@@ -774,14 +964,14 @@ function isCheck(white)
 
   -- Look at surrounding 3x3, king included for validateMove()
   local p_rank = (white and 1 or -1)
-  if scan:match({r + p_rank, f + 1}, pawn_set, enemy) then return true end
-  if scan:match({r + p_rank, f - 1}, pawn_set, enemy) then return true end
-  if scan:match({r - p_rank, f + 1}, k_diag_set, enemy) then return true end
-  if scan:match({r - p_rank, f - 1}, k_diag_set, enemy) then return true end
-  if scan:match({r + 1, f}, k_ortho_set, enemy) then return true end
-  if scan:match({r - 1, f}, k_ortho_set, enemy) then return true end
-  if scan:match({r, f + 1}, k_ortho_set, enemy) then return true end
-  if scan:match({r, f - 1}, k_ortho_set, enemy) then return true end
+  if scan:match({r + p_rank, f + 1}, enemy, pawn_set) then return true end
+  if scan:match({r + p_rank, f - 1}, enemy, pawn_set) then return true end
+  if scan:match({r - p_rank, f + 1}, enemy, k_diag_set) then return true end
+  if scan:match({r - p_rank, f - 1}, enemy, k_diag_set) then return true end
+  if scan:match({r + 1, f}, enemy, k_ortho_set) then return true end
+  if scan:match({r - 1, f}, enemy, k_ortho_set) then return true end
+  if scan:match({r, f + 1}, enemy, k_ortho_set) then return true end
+  if scan:match({r, f - 1}, enemy, k_ortho_set) then return true end
 
   -- Look across a line for certain pieces
   local look_line = function(step_i, step_j, ptypes)
@@ -790,7 +980,7 @@ function isCheck(white)
       local coord = {r + i, f + j}
       if scan:empty(coord) then
         i, j = i + step_i, j + step_j
-      elseif scan:match(coord, ptypes, enemy) then
+      elseif scan:match(coord, enemy, ptypes) then
         return true
       else
         break
@@ -799,14 +989,14 @@ function isCheck(white)
     return false
   end
 
-  if scan:match({r + 1, f + 2}, knight_set, enemy) then return true end
-  if scan:match({r + 2, f + 1}, knight_set, enemy) then return true end
-  if scan:match({r + 1, f - 2}, knight_set, enemy) then return true end
-  if scan:match({r + 2, f - 1}, knight_set, enemy) then return true end
-  if scan:match({r - 1, f + 2}, knight_set, enemy) then return true end
-  if scan:match({r - 2, f + 1}, knight_set, enemy) then return true end
-  if scan:match({r - 1, f - 2}, knight_set, enemy) then return true end
-  if scan:match({r - 2, f - 1}, knight_set, enemy) then return true end
+  if scan:match({r + 1, f + 2}, enemy, knight_set) then return true end
+  if scan:match({r + 2, f + 1}, enemy, knight_set) then return true end
+  if scan:match({r + 1, f - 2}, enemy, knight_set) then return true end
+  if scan:match({r + 2, f - 1}, enemy, knight_set) then return true end
+  if scan:match({r - 1, f + 2}, enemy, knight_set) then return true end
+  if scan:match({r - 2, f + 1}, enemy, knight_set) then return true end
+  if scan:match({r - 1, f - 2}, enemy, knight_set) then return true end
+  if scan:match({r - 2, f - 1}, enemy, knight_set) then return true end
 
   return
     look_line(1, 1, diag_set)
@@ -839,6 +1029,107 @@ function hasMoves(white)
     end
   end
   return false
+end
+
+function gameOver(code, msg)
+  time_live = false
+  game.over = true
+  game.over_code = code
+  game.over_msg = msg
+  clearPreviews()
+  for i=1,8 do
+    for j=1,8 do
+      local sq = squareAt({i, j})
+      if sq.piece then
+        sq.piece.drop()
+        sq.piece.interactable = false
+        sq.piece.use_gravity = true
+      end
+    end
+  end
+  local msg1 = 'Draw'
+  local color = {0.5,0.5,0.5}
+  if code ~= nil then
+    msg1 = (code and 'White' or 'Black') .. ' wins'
+    color = code and {1,1,1} or {0,0,0}
+  end
+  broadcastToAll(msg1 .. '\n' .. msg, color)
+  self.UI.setAttribute('white_ctrl', 'active', false)
+  self.UI.setAttribute('black_ctrl', 'active', false)
+  self.UI.setAttribute('white_rematch', 'active', true)
+  self.UI.setAttribute('black_rematch', 'active', true)
+  ctrlReset()
+end
+
+--------------------------------
+-- Timers
+--------------------------------
+
+function setupTimers(time, incr)
+  if time then
+    game.white.timer = time
+    game.black.timer = time
+    game.increment = incr
+  else
+    game.white.timer = 0
+    game.black.timer = 0
+    game.stopwatched = true
+  end
+
+  Wait.frames(function()
+    Global.UI.setAttribute('white_timers', 'active', true)
+    Global.UI.setAttribute('black_timers', 'active', true)
+    updateTimers()
+    game.timed = true
+  end, 5)
+end
+
+ticker = 0
+INTERVAL = 3
+time_live = false
+function onUpdate()
+  if time_live then
+    ticker = ticker + 1
+    if ticker == INTERVAL then
+      local player = game.white_to_move and game.white or game.black
+      local new_time = os.clock()
+      if game.stopwatched then
+        player.timer = player.timer + (new_time - player.delta_time);
+      else
+        player.timer = player.timer - (new_time - player.delta_time);
+        if player.timer < 0 then
+          player.timer = 0
+          gameOver(not game.white_to_move, 'by timeout')
+        end
+      end
+      player.delta_time = new_time
+      updateTimers(game.white_to_move)
+      ticker = 0
+    end
+  end
+end
+
+function updateTimers(white)
+  if white == nil then
+    updateTimers(true)
+    updateTimers(false)
+    return
+  end
+  local str = white and 'white' or 'black'
+  local player = white and game.white or game.black
+  if player.timer > 20 then
+    local minute = math.floor(player.timer / 60)
+    local second = player.timer % 60
+    Global.UI.setAttribute(str .. '_as_self', 'text', string.format('%02d:%02d', minute, second))
+    Global.UI.setAttribute(str .. '_as_opp', 'text', string.format('%02d:%02d', minute, second))
+  else
+    local num = string.format('%.1f', player.timer)
+    if num == '0.0' and player.timer ~= 0 then
+      num = '0.1'
+    end
+    Global.UI.setAttribute(str .. '_as_self', 'text', num)
+    Global.UI.setAttribute(str .. '_as_opp', 'text', num)
+  end
 end
 
 --------------------------------
@@ -921,7 +1212,11 @@ end
 
 function onScriptingButtonUp(index, player_color)
   -- debug_printBoard()
-  log(Player['White'].getHoverObject())
-  log(Player['White'].getHoldingObjects())
-
+  -- local objs = Player['White'].getSelectedObjects()
+  -- local str = ''
+  -- for _,obj in ipairs(objs) do
+  --   str = str .. string.format("getObjectFromGUID('%s').interactable = false\n", obj.guid)
+  -- end
+  -- log(str)
+  -- log(self.UI.getAttribute('white_draw', 'colors'))
 end

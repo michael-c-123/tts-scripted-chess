@@ -1,0 +1,273 @@
+<Defaults>
+  <ToggleButton colors="#FFFFFF|#CCCCCC"/>
+</Defaults>
+
+<VerticalLayout id="main" width="700" height="1000" spacing="20" childAlignment="MiddleCenter">
+  <Panel minHeight="300"><ToggleGroup><VerticalLayout spacing="10">
+    <ToggleButton
+      id="untimed"
+      tooltip="No time limit."
+      tooltipPosition="Right"
+      fontSize="75"
+      onClick="menuClicked"
+      isOn="true"
+      >Untimed
+    </ToggleButton>
+    <ToggleButton
+      id="stopwatched"
+      tooltip="No time limit, but the time taken for each player is tracked."
+      tooltipPosition="Right"
+      fontSize="75"
+      onClick="menuClicked"
+      >Stopwatched
+    </ToggleButton>
+    <ToggleButton
+      id="timed"
+      tooltip="Timed according to the fields below."
+      tooltipPosition="Right"
+      fontSize="75"
+      onClick="menuClicked"
+      onValueChanged="menuTimedSwitched"
+      >Timed
+    </ToggleButton>
+  </VerticalLayout></ToggleGroup></Panel>
+
+  <HorizontalLayout width="0" height="0" childForceExpandHeight="false"
+    padding="50 50 -50 0" childAlignment="MiddleCenter">
+    <InputField
+      id="pool"
+      placeholder="30"
+      tooltip="Minutes alotted per player." tooltipPosition="Below"
+      fontSize="75" minHeight="150"
+      characterValidation="Integer" characterLimit="3"
+      textAlignment="MiddleCenter"
+      interactable="false"
+      onValueChanged="menuPoolEdited"
+    ></InputField>
+    <Text fontSize="75" fontStyle="bold" color="White">+</Text>
+    <InputField
+      id="incr"
+      placeholder="0"
+      tooltip="Seconds incremented for each player's move." tooltipPosition="Below"
+      fontSize="75" minHeight="150"
+      characterValidation="Integer" characterLimit="3"
+      textAlignment="MiddleCenter"
+      interactable="false"
+      onValueChanged="menuIncrEdited"
+    ></InputField>
+  </HorizontalLayout>
+
+  <Panel>
+    <ToggleButton
+      width="70%" height="50%"
+      fontSize="30"
+      onValueChanged="menuRandomizeSwitched"
+      >Randomize White/Black
+    </ToggleButton>
+  </Panel>
+
+  <Button
+    id="start"
+    fontSize="75" fontStyle="Bold"
+    onClick="startClicked"
+    >Start
+  </Button>
+
+</VerticalLayout>
+
+<ToggleButton
+  id="white_rematch"
+  active="false"
+  visibility="White"
+  color="#FFFFFF"
+  width="400" height="100"
+  offsetXY="0 -1000"
+  fontSize="30"
+  onValueChanged="ctrlRematch"
+>Ready to Play Again
+</ToggleButton>
+
+<ToggleButton
+  id="black_rematch"
+  active="false"
+  color="#FFFFFF"
+  visibility="Green"
+  width="400" height="100"
+  offsetXY="0 1000" rotation="0 0 180"
+  fontSize="30"
+  onValueChanged="ctrlRematch"
+>Ready to Play Again
+</ToggleButton>
+
+<VerticalLayout id="white_ctrl" width="400" height="200" offsetXY="0 -1100"
+  visibility="White"
+  active="false"
+>
+  <Button
+    id="white_resign"
+    color="#FFFFFF"
+    fontSize="30"
+    onClick="ctrlResign"
+  >Resign
+  </Button>
+
+  <ToggleButton
+    id="white_draw"
+    color="#FFFFFF"
+    fontSize="30"
+    onValueChanged="ctrlDraw"
+  >Offer Draw
+  </ToggleButton>
+</VerticalLayout>
+
+<VerticalLayout id="black_ctrl" width="400" height="200" offsetXY="0 1100"
+  rotation="0 0 180"
+  visibility="Green"
+  active="false"
+>
+  <Button
+    id="black_resign"
+    color="#FFFFFF"
+    fontSize="30"
+    onClick="ctrlResign"
+  >Resign
+  </Button>
+
+  <ToggleButton
+    id="black_draw"
+    color="#FFFFFF"
+    fontSize="30"
+    onValueChanged="ctrlDraw"
+  >Offer Draw
+  </ToggleButton>
+</VerticalLayout>
+
+<!-- Generated square indicators -->
+<Image id="i11" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -592.000000" color="#00000000" />
+<Button id="11" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i12" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -592.000000" color="#00000000" />
+<Button id="12" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i13" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -592.000000" color="#00000000" />
+<Button id="13" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i14" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -592.000000" color="#00000000" />
+<Button id="14" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i15" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -592.000000" color="#00000000" />
+<Button id="15" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i16" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -592.000000" color="#00000000" />
+<Button id="16" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i17" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -592.000000" color="#00000000" />
+<Button id="17" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i18" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -592.000000" color="#00000000" />
+<Button id="18" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i21" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -422.857143" color="#00000000" />
+<Button id="21" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i22" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -422.857143" color="#00000000" />
+<Button id="22" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i23" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -422.857143" color="#00000000" />
+<Button id="23" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i24" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -422.857143" color="#00000000" />
+<Button id="24" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i25" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -422.857143" color="#00000000" />
+<Button id="25" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i26" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -422.857143" color="#00000000" />
+<Button id="26" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i27" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -422.857143" color="#00000000" />
+<Button id="27" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i28" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -422.857143" color="#00000000" />
+<Button id="28" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i31" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -253.714286" color="#00000000" />
+<Button id="31" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i32" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -253.714286" color="#00000000" />
+<Button id="32" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i33" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -253.714286" color="#00000000" />
+<Button id="33" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i34" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -253.714286" color="#00000000" />
+<Button id="34" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i35" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -253.714286" color="#00000000" />
+<Button id="35" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i36" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -253.714286" color="#00000000" />
+<Button id="36" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i37" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -253.714286" color="#00000000" />
+<Button id="37" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i38" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -253.714286" color="#00000000" />
+<Button id="38" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i41" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -84.571429" color="#00000000" />
+<Button id="41" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i42" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -84.571429" color="#00000000" />
+<Button id="42" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i43" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -84.571429" color="#00000000" />
+<Button id="43" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i44" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -84.571429" color="#00000000" />
+<Button id="44" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i45" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -84.571429" color="#00000000" />
+<Button id="45" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i46" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -84.571429" color="#00000000" />
+<Button id="46" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i47" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -84.571429" color="#00000000" />
+<Button id="47" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i48" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -84.571429" color="#00000000" />
+<Button id="48" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 -84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i51" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 84.571429" color="#00000000" />
+<Button id="51" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i52" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 84.571429" color="#00000000" />
+<Button id="52" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i53" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 84.571429" color="#00000000" />
+<Button id="53" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i54" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 84.571429" color="#00000000" />
+<Button id="54" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i55" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 84.571429" color="#00000000" />
+<Button id="55" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i56" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 84.571429" color="#00000000" />
+<Button id="56" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i57" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 84.571429" color="#00000000" />
+<Button id="57" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i58" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 84.571429" color="#00000000" />
+<Button id="58" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 84.571429" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i61" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 253.714286" color="#00000000" />
+<Button id="61" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i62" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 253.714286" color="#00000000" />
+<Button id="62" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i63" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 253.714286" color="#00000000" />
+<Button id="63" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i64" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 253.714286" color="#00000000" />
+<Button id="64" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i65" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 253.714286" color="#00000000" />
+<Button id="65" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i66" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 253.714286" color="#00000000" />
+<Button id="66" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i67" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 253.714286" color="#00000000" />
+<Button id="67" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i68" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 253.714286" color="#00000000" />
+<Button id="68" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 253.714286" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i71" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 422.857143" color="#00000000" />
+<Button id="71" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i72" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 422.857143" color="#00000000" />
+<Button id="72" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i73" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 422.857143" color="#00000000" />
+<Button id="73" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i74" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 422.857143" color="#00000000" />
+<Button id="74" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i75" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 422.857143" color="#00000000" />
+<Button id="75" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i76" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 422.857143" color="#00000000" />
+<Button id="76" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i77" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 422.857143" color="#00000000" />
+<Button id="77" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i78" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 422.857143" color="#00000000" />
+<Button id="78" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 422.857143" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i81" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 592.000000" color="#00000000" />
+<Button id="81" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-592.000000 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i82" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 592.000000" color="#00000000" />
+<Button id="82" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-422.857143 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i83" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 592.000000" color="#00000000" />
+<Button id="83" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-253.714286 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i84" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 592.000000" color="#00000000" />
+<Button id="84" active="false" width="169.142857142857" height="169.142857142857" offsetXY="-84.571429 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i85" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 592.000000" color="#00000000" />
+<Button id="85" active="false" width="169.142857142857" height="169.142857142857" offsetXY="84.571429 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i86" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 592.000000" color="#00000000" />
+<Button id="86" active="false" width="169.142857142857" height="169.142857142857" offsetXY="253.714286 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i87" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 592.000000" color="#00000000" />
+<Button id="87" active="false" width="169.142857142857" height="169.142857142857" offsetXY="422.857143 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
+<Image id="i88" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 592.000000" color="#00000000" />
+<Button id="88" active="false" width="169.142857142857" height="169.142857142857" offsetXY="592.000000 592.000000" icon="circle" color="#00000000" onClick="buttonClicked" onMouseEnter="buttonEntered" onMouseExit="buttonExited" />
