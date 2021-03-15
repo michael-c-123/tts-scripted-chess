@@ -1,0 +1,9 @@
+<Button
+  id='button'
+  height="100" width="500"
+  onClick="rando"
+  fontSize="30"
+  tooltip="Randomly assign White and Green seats. If two players are not already sitting there, other players will be drawn at random."
+  tooltipPosition="Below"
+>Randomize White/Black
+</Button>

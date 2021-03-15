@@ -1,16 +1,24 @@
--- TODO turn counter?
-
-INFO = {
-  ['P'] = {height=2.77, wbag_guid='b795f6', bbag_guid='c70db4'},
-  ['R'] = {height=2.88, wbag_guid='0a44d3', bbag_guid='b7adf5'},
-  ['N'] = {height=3.2, wbag_guid='5d7621', bbag_guid='0dfee7'},
-  ['B'] = {height=3.06, wbag_guid='325444', bbag_guid='66240d'},
-  ['Q'] = {height=3.4, wbag_guid='b87cbe', bbag_guid='7d6441'},
-  ['K'] = {height=3.51, wbag_guid='68baf5', bbag_guid='66aa94'}
+INFO = {}
+INFO[1] = {
+  ['P'] = {height=2.78, wbag_guid='b795f6', bbag_guid='c70db4'},
+  ['R'] = {height=2.89, wbag_guid='0a44d3', bbag_guid='b7adf5'},
+  ['N'] = {height=3.21, wbag_guid='5d7621', bbag_guid='0dfee7'},
+  ['B'] = {height=3.07, wbag_guid='325444', bbag_guid='66240d'},
+  ['Q'] = {height=3.41, wbag_guid='b87cbe', bbag_guid='7d6441'},
+  ['K'] = {height=3.52, wbag_guid='68baf5', bbag_guid='66aa94'}
 }
-ALL_BUT_GREEN = 'White|Brown|Red|Orange|Yellow|Teal|Blue|Purple|Pink|Grey|Black'
-game = {}
+INFO[2] = {
+  ['P'] = {height=2.78, wbag_guid='e3cf91', bbag_guid='f190d1'},
+  ['R'] = {height=2.89, wbag_guid='a1352b', bbag_guid='539aa2'},
+  ['N'] = {height=3.21, wbag_guid='92aec0', bbag_guid='8833e7'},
+  ['B'] = {height=3.07, wbag_guid='faaf0a', bbag_guid='b108d3'},
+  ['Q'] = {height=3.41, wbag_guid='e93bb7', bbag_guid='4b1574'},
+  ['K'] = {height=3.52, wbag_guid='17ac80', bbag_guid='8da8a3'}
+}
+game = nil
 promo = {}
+
+RANDOMIZER = nil
 
 -- Buttons 170 width/height, 593 xyoffset
 
@@ -19,12 +27,13 @@ function onLoad(save_state)
   self.interactable = false
   Turns.enable = true
   Turns.pass_turns = false
+  RANDOMIZER = getObjectFromGUID('0f3ed5')
 
   clearBoard()
 
   if save_state and save_state ~= '' then
     game = JSON.decode(save_state)
-    setup()
+    setup(game.over)
 
     local check_check = function(player)
       if player.in_check then
@@ -42,7 +51,12 @@ function onLoad(save_state)
     end
 
     if game.over then
-      gameOver(game.over_code, game.over_msg)
+      gameOver(game.over_code, game.over_msg, true)
+      -- Force these off, for some reason doesn't work in gameOver()
+      Wait.frames(function()
+        self.UI.setAttribute('white_ctrl', 'active', false)
+        self.UI.setAttribute('black_ctrl', 'active', false)
+      end, 5)
     elseif game.timed then
       Global.UI.setAttribute('white_timers', 'active', true)
       Global.UI.setAttribute('black_timers', 'active', true)
@@ -53,10 +67,11 @@ function onLoad(save_state)
         time_live = true
       end, 3)
     end
-  else
+  else -- Fresh save
+    menuReset()
     self.UI.setAttribute('main', 'active', true)
+    RANDOMIZER.UI.setAttribute('button', 'active', true)
   end
-
 end
 
 function clearBoard()
@@ -68,14 +83,14 @@ function clearBoard()
   end
   for i=1,8 do
     for j=1,8 do
-      self.UI.setAttribute(string.format("i%d%d", i, j), 'color', '#00000000')
-      self.UI.setAttribute(string.format("%d%d", i, j), 'active', false)
+      self.UI.setAttribute(string.format("%d%d", i, j), 'color', '#00000000')
+      self.UI.setAttribute(string.format("i%d%d", i, j), 'image', 'empty')
     end
   end
 end
 
 function onSave()
-  if not game.board then return end
+  if not game or not game.board then return end
 
   -- Create a copy with no piece references or specials
   local copy = {}
@@ -102,7 +117,12 @@ end
 
 local menu_selected = 'untimed'
 local menu_pool, menu_incr = '', ''
-local menu_randomize = false
+local menu_material = 1
+function menuReset()
+  menu_selected = 'untimed'
+  menu_pool, menu_incr = '', ''
+  menu_material = 1
+end
 function menuClicked(_, button, id)
   if button == '-1' then
     menu_selected = id
@@ -113,35 +133,23 @@ function menuTimedSwitched(_, on)
   self.UI.setAttribute('pool', 'interactable', enable)
   self.UI.setAttribute('incr', 'interactable', enable)
 end
-function menuRandomizeSwitched(_, on)
-  menu_randomize = on == 'True'
+function menuWooden(_, on)
+  if on == 'True' then menu_material = 1 end
+end
+function menuMetallic(_, on)
+  if on == 'True' then menu_material = 2 end
 end
 function menuPoolEdited(_, text) menu_pool = text end
 function menuIncrEdited(_, text) menu_incr = text end
 function startClicked(player, button, id)
   if button == '-1' then
-    local do_randomize = function() end
-    if menu_randomized then
-      if Player['White'].seated and Player['Green'].seated then
-        do_randomize = function()
-          if math.random() < 0.5 then
-            Player['Green'].changeColor('White')
-          end
-        end
-      else
-        broadcastToColor('Players must be seated at White and Green.', player.color, {1,1,1})
-      end
-    end
-
     if menu_selected == 'untimed' then
       Global.UI.setAttribute('white_timers', 'active', 'false')
       Global.UI.setAttribute('black_timers', 'active', 'false')
-      do_randomize()
-      startBoardStatus()
+      startBoardStatus(menu_material)
       setup()
     elseif menu_selected == 'stopwatched' then
-      do_randomize()
-      startBoardStatus()
+      startBoardStatus(menu_material)
       setup()
       setupTimers()
     else
@@ -149,8 +157,7 @@ function startClicked(player, button, id)
       if menu_pool ~= '' then pool = tonumber(menu_pool) end
       if menu_incr ~= '' then incr = tonumber(menu_incr) end
       if pool and incr and pool > 0 and incr >= 0 then
-        do_randomize()
-        startBoardStatus()
+        startBoardStatus(menu_material)
         setup()
         setupTimers(pool * 60, incr)
       else
@@ -210,9 +217,15 @@ function ctrlRematch(player, on)
     game = {}
     self.UI.setAttribute('white_rematch', 'active', false)
     self.UI.setAttribute('black_rematch', 'active', false)
+    self.UI.setAttribute('white_msg1', 'active', false)
+    self.UI.setAttribute('black_msg1', 'active', false)
+    self.UI.setAttribute('white_msg2', 'active', false)
+    self.UI.setAttribute('black_msg2', 'active', false)
     Global.UI.setAttribute('white_timers', 'active', false)
     Global.UI.setAttribute('black_timers', 'active', false)
+    menuReset()
     self.UI.setAttribute('main', 'active', true)
+    RANDOMIZER.UI.setAttribute('button', 'active', true)
   end
 end
 
@@ -232,7 +245,8 @@ function ctrlReset()
   self.UI.setAttribute('black_rematch', 'isOn', false)
 end
 
-function startBoardStatus()
+function startBoardStatus(material)
+  game = {}
   game.board = {}
   for i=1,8 do
     game.board[i] = {{},{},{},{},{},{},{},{}}
@@ -246,6 +260,7 @@ function startBoardStatus()
   game.en_passant_coord = nil
   game.last_move_from, game.last_move_to = nil, nil
   game.turn = 1
+  game.material = material
 
   local set_coord = function(coord, ptype, white)
     setSquareAt(coord, {
@@ -278,35 +293,60 @@ function startBoardStatus()
   set_side(false)
 end
 
-function setup()
+BUTTON_SIZE = 840
+function setup(freeze_all)
   local setup_square = function(coord, ptype, white)
     local bag_guid = white and 'wbag_guid' or 'bbag_guid'
-    getObjectFromGUID(INFO[ptype][bag_guid]).takeObject({
+    getObjectFromGUID(INFO[game.material][ptype][bag_guid]).takeObject({
       position = coordToPos(coord, ptype),
       rotation = {0, white and 180 or 0, 0},
       smooth = false,
       callback_function = function(p)
-        p.interactable = game.white_to_move == white
+        p.interactable = (game.white_to_move == white) and not freeze_all
         squareAt(coord).piece = p
       end
     })
   end
 
+  self.clearButtons()
+  local pos = 5.92
+  local step = -pos / 3.5
+  for i=0,7 do
+    for j=0,7 do
+      local func_string = string.format('click%d%d', i + 1, j + 1)
+      _G[func_string] = function(_, color, alt) click({i + 1, j + 1}, color, alt) end
+      self.createButton({
+        click_function = func_string,
+        function_owner = self,
+        position = {pos+step*j,0,-pos-step*i},
+        width = 0, height = 0,
+        color={0,0,0,0}
+      })
+    end
+  end
+
   -- local xml_table = self.UI.getXmlTable()
   -- local START, STOP = -592, 592
   -- local step = (STOP - START) / 7.0
-  -- table.insert(xml_table, {
-  --   tag = 'Image',
-  --   attributes = {
-  --     id = string.format("i%d%d", i, j),
-  --     width = step, height = step,
-  --     offsetXY = string.format("%f %f",
-  --       START + (j - 1) * step,
-  --       START + (i - 1) * step
-  --     ),
-  --     color = "#00000000",
-  --   }
-  -- })
+  -- for i=1,8 do
+  --   for j=1,8 do
+  --     table.insert(xml_table, {
+  --       tag = 'Image',
+  --       attributes = {
+  --         id = string.format("i%d%d", i, j),
+  --         width = step, height = step,
+  --         offsetXY = string.format("%f %f",
+  --           START + (j - 1) * step,
+  --           START + (i - 1) * step
+  --         ),
+  --         color = "#00000000",
+  --         image = 'circle'
+  --       }
+  --     })
+  --   end
+  -- end
+  -- self.UI.setXmlTable(xml_table)
+  -- Wait.frames(function() log(self.UI.getXml()) end, 10)
   -- table.insert(xml_table, {
   --   tag = 'Button',
   --   attributes = {
@@ -335,8 +375,16 @@ function setup()
     end
   end
 
+  local w_player, b_player = Player['White'], Player['Green']
+  local scorecard = getObjectFromGUID('82a739')
+  if scorecard and not scorecard.isDestroyed() then
+    if w_player.seated then scorecard.call('increment', {w_player.steam_name, 0}) end
+    if b_player.seated then scorecard.call('increment', {b_player.steam_name, 0}) end
+  end
+
   Wait.frames(function()
-    self.UI.setAttribute('main', 'active', 'false')
+    self.UI.setAttribute('main', 'active', false)
+    RANDOMIZER.UI.setAttribute('button', 'active', false)
     self.UI.setAttribute('white_ctrl', 'active', true)
     self.UI.setAttribute('black_ctrl', 'active', true)
     ctrlReset()
@@ -347,6 +395,7 @@ end
 local active = nil
 local first_pickup = false
 function onObjectPickUp(player_color, picked_up_object)
+  if not game then return end
   local cur_color = game.white_to_move and 'White' or 'Green'
   if player_color ~= cur_color then
     broadcastToColor('It is not your turn.', player_color)
@@ -364,7 +413,7 @@ function onObjectPickUp(player_color, picked_up_object)
 
     squareAt(promo.pawn_coord).piece.destruct()
     local pos = coordToPos(promo.pawn_coord, promo_type)
-    local bag = getObjectFromGUID(INFO[promo_type][game.white_to_move and 'wbag_guid' or 'bbag_guid'])
+    local bag = getObjectFromGUID(INFO[game.material][promo_type][game.white_to_move and 'wbag_guid' or 'bbag_guid'])
     local promoted_piece = bag.takeObject({position = pos, smooth = false})
     squareAt(promo.pawn_coord).piece = promoted_piece
     squareAt(promo.pawn_coord).ptype = promo_type
@@ -387,48 +436,13 @@ function onObjectPickUp(player_color, picked_up_object)
   end
 end
 
-function buttonClicked(player, button, id)
-  if (button == '-1')
-      and player.getHoverObject() == nil
-      and ((game.white_to_move and 'White' or 'Green') == player.color) -- DEBUG
+function click(coord, player_color, alt)
+  if not alt
+      -- and ((game.white_to_move and 'White' or 'Green') == player_color) -- DEBUG
       then
-
-    local num = tonumber(id)
-    local coord = {math.floor(num / 10), num % 10}
     local click_specials = squareAt(coord).specials
     clearPreviews()
     moveTo(coord, click_specials)
-  end
-end
-
-function buttonEntered(player, _, id)
-  if true
-      and ((game.white_to_move and 'White' or 'Green') == player.color) -- DEBUG
-      then
-    local held = player.getHoldingObjects()
-    if not held or #held > 0 then return end
-
-    local num = tonumber(id)
-    local sq = squareAt({math.floor(num / 10), num % 10})
-    if sq and sq.piece then
-      if sq.ptype ~= nil or sq.specials.en_passant then
-        sq.piece.highlightOn({1,0,0})
-      else
-        sq.piece.highlightOn({1,1,1})
-      end
-    end
-  end
-end
-
-function buttonExited(player, _, id)
-  if true
-      and ((game.white_to_move and 'White' or 'Green') == player.color) -- DEBUG
-      then
-    local num = tonumber(id)
-    local sq = squareAt({math.floor(num / 10), num % 10})
-    if sq and sq.piece then
-      sq.piece.highlightOff()
-    end
   end
 end
 
@@ -440,7 +454,7 @@ function raisePieceAt(coord)
 end
 
 function onObjectDrop(player_color, dropped_object)
-  if not active then return false end
+  if not active or not game then return end
   if (game.white_to_move and 'White' or 'Green') ~= player_color then return false end
   local active_sq = squareAt(active)
 
@@ -450,7 +464,7 @@ function onObjectDrop(player_color, dropped_object)
 
     if not coord then -- Outside the chessboard
       raisePieceAt(active)
-    elseif drop_sq.piece and drop_sq.specials.move then
+    elseif drop_sq.specials and drop_sq.specials.move then
       local drop_specials = drop_sq.specials -- Preserves info cleared by clearPreviews()
       clearPreviews()
       moveTo(coord, drop_specials)
@@ -565,7 +579,7 @@ function moveTo(dest, dest_specials)
       table.insert(promo.selections, obj)
     end
     for i=1,4 do
-      local bag = getObjectFromGUID(INFO[ptypes[i]][bag_guid_field])
+      local bag = getObjectFromGUID(INFO[game.material][ptypes[i]][bag_guid_field])
       local j = game.white_to_move and i or -i
       local k = game.white_to_move and 1 or -1
       local pos = coordToPos({dest[1] + pawn_move, dest[2] + j - k}, ptypes[i])
@@ -700,17 +714,17 @@ function clearPreviews()
   end
   for _,coord in ipairs(move_previews) do
     local square = squareAt(coord)
-    local id = string.format('%d%d', coord[1], coord[2])
-    self.UI.setAttribute(id, 'active', false)
-    square.piece.destruct()
-    setSquareAt(coord, {})
+    local id = string.format('i%d%d', coord[1], coord[2])
+    self.UI.setAttribute(id, 'image', 'empty')
+    setButtonEnabled(coord, false)
+    square.specials = {}
   end
   move_previews = {}
   for _,coord in ipairs(capture_previews) do
     local square = squareAt(coord)
-    local id = string.format('%d%d', coord[1], coord[2])
-    self.UI.setAttribute(id, 'active', false)
-    square.piece.highlightOff()
+    local id = string.format('i%d%d', coord[1], coord[2])
+    self.UI.setAttribute(id, 'image', 'empty')
+    setButtonEnabled(coord, false)
     square.specials = {}
   end
   capture_previews = {}
@@ -924,26 +938,18 @@ function previewMove(from_coord, to_coord)
   local pos = coordToPos(to_coord, ptype)
   local white = squareAt(from_coord).white
 
-  local bag = getObjectFromGUID(INFO[ptype][white and 'wbag_guid' or 'bbag_guid'])
-  local preview_piece = bag.takeObject({position = pos, smooth = false,
-      callback_function = function(p)
-        p.setColorTint({1,1,1,0})
-        p.interactable = false
-      end})
-
-  local id = string.format('%d%d', to_coord[1], to_coord[2])
-  self.UI.setAttribute(id, 'active', true)
-  setSquareAt(to_coord, {piece=preview_piece, specials={move=true}})
+  local id = string.format('i%d%d', to_coord[1], to_coord[2])
+  self.UI.setAttribute(id, 'image', 'circle')
+  setButtonEnabled(to_coord, true)
+  squareAt(to_coord).specials = {move=true}
   table.insert(move_previews, to_coord)
 end
 
 function previewCapture(from_coord, to_coord)
   local target = squareAt(to_coord)
-  local id = string.format('%d%d', to_coord[1], to_coord[2])
-  self.UI.setAttributes(id, {
-    active = true,
-    color = '#00000097'
-  })
+  local id = string.format('i%d%d', to_coord[1], to_coord[2])
+  self.UI.setAttribute(id, 'image', 'capture')
+  setButtonEnabled(to_coord, true)
   target.specials.move = true
   table.insert(capture_previews, to_coord)
 end
@@ -1031,7 +1037,7 @@ function hasMoves(white)
   return false
 end
 
-function gameOver(code, msg)
+function gameOver(code, msg, no_increment)
   time_live = false
   game.over = true
   game.over_code = code
@@ -1049,16 +1055,50 @@ function gameOver(code, msg)
   end
   local msg1 = 'Draw'
   local color = {0.5,0.5,0.5}
+  local color_hex = '#888888'
   if code ~= nil then
     msg1 = (code and 'White' or 'Black') .. ' wins'
     color = code and {1,1,1} or {0,0,0}
+    color_hex = code and '#FFFFFF' or '#000000'
   end
   broadcastToAll(msg1 .. '\n' .. msg, color)
   self.UI.setAttribute('white_ctrl', 'active', false)
   self.UI.setAttribute('black_ctrl', 'active', false)
   self.UI.setAttribute('white_rematch', 'active', true)
   self.UI.setAttribute('black_rematch', 'active', true)
+
+  self.UI.setAttributes('white_msg1', {
+    active=true, text=msg1, color=color_hex
+  })
+  self.UI.setAttributes('white_msg2', {
+    active=true, text=msg, color=color_hex
+  })
+  self.UI.setAttributes('black_msg1', {
+    active=true, text=msg1, color=color_hex
+  })
+  self.UI.setAttributes('black_msg2', {
+    active=true, text=msg, color=color_hex
+  })
   ctrlReset()
+
+  if not no_increment then
+    local scorecard = getObjectFromGUID('82a739')
+    if not scorecard or scorecard.isDestroyed() then return end
+
+    local w_player, b_player = Player['White'], Player['Green']
+    if code ~= nil then
+      if code == true then
+        if w_player.seated then scorecard.call('increment', {w_player.steam_name, 1}) end
+        if b_player.seated then scorecard.call('increment', {b_player.steam_name, 0}) end
+      else
+        if w_player.seated then scorecard.call('increment', {w_player.steam_name, 0}) end
+        if b_player.seated then scorecard.call('increment', {b_player.steam_name, 1}) end
+      end
+    else
+      if w_player.seated then scorecard.call('increment', {w_player.steam_name, 0.5}) end
+      if b_player.seated then scorecard.call('increment', {b_player.steam_name, 0.5}) end
+    end
+  end
 end
 
 --------------------------------
@@ -1085,7 +1125,7 @@ function setupTimers(time, incr)
 end
 
 ticker = 0
-INTERVAL = 3
+INTERVAL = 4
 time_live = false
 function onUpdate()
   if time_live then
@@ -1099,6 +1139,7 @@ function onUpdate()
         player.timer = player.timer - (new_time - player.delta_time);
         if player.timer < 0 then
           player.timer = 0
+          updateTimers(game.white_to_move)
           gameOver(not game.white_to_move, 'by timeout')
         end
       end
@@ -1166,7 +1207,7 @@ local pos_step = pos_start * 2 / 7.0
 function coordToPos(coord, ptype, raise)
   local x = -pos_start + pos_step * (coord[2] - 1)
   local z = -pos_start + pos_step * (coord[1] - 1)
-  return {x, INFO[ptype].height + (raise and 1 or 0), z}
+  return {x, INFO[game.material][ptype].height + (raise and 1 or 0), z}
 end
 function coordEquals(a, b)
   if not a then return not b end
@@ -1184,9 +1225,18 @@ end
 
 function highlightCoord(coord, color)
   self.UI.setAttribute(
-    string.format("i%d%d", coord[1], coord[2]),
+    string.format("%d%d", coord[1], coord[2]),
     "color", color
   )
+end
+
+function setButtonEnabled(coord, enable)
+  local index = (coord[1] - 1) * 8 + coord[2] - 1
+  local size = enable and BUTTON_SIZE or 0
+  self.editButton({
+    index = index,
+    width = size, height = size
+  })
 end
 
 function debug_printBoard()
@@ -1212,11 +1262,10 @@ end
 
 function onScriptingButtonUp(index, player_color)
   -- debug_printBoard()
-  -- local objs = Player['White'].getSelectedObjects()
-  -- local str = ''
-  -- for _,obj in ipairs(objs) do
-  --   str = str .. string.format("getObjectFromGUID('%s').interactable = false\n", obj.guid)
-  -- end
-  -- log(str)
-  -- log(self.UI.getAttribute('white_draw', 'colors'))
+  local objs = Player['White'].getSelectedObjects()
+  local str = ''
+  for _,obj in ipairs(objs) do
+    str = str .. string.format("getObjectFromGUID('%s').interactable = false\n", obj.guid)
+  end
+  log(str)
 end
