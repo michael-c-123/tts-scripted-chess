@@ -46,12 +46,12 @@ function updateDisplay()
     table.insert(items, {name, score})
   end
   if #items == 0 then
-    self.setDescription('[808080][i]Feel free to delete\nPress R over this to reset[/i][-]')
+    self.setDescription('[808080][i]Feel free to delete, move, etc\nPress randomize (R) over this to reset[/i][-]')
     return
   end
 
   local cmp = function(a, b)
-    if a[2] ~= b[2] then return a[2] < b[2] end
+    if a[2] ~= b[2] then return a[2] > b[2] end
     return a[1] < b[1]
   end
   table.sort(items, cmp)

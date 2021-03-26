@@ -1,9 +1,18 @@
-<Button
-  id='button'
-  height="100" width="500"
-  onClick="rando"
-  fontSize="30"
-  tooltip="Randomly assign White and Green seats. If two players are not already sitting there, other players will be drawn at random."
-  tooltipPosition="Below"
->Randomize White/Black
-</Button>
+<VerticalLayout id="buttons" height="200" width="500">
+  <Button
+    id="rando"
+    onClick="rando"
+    fontSize="30"
+    tooltip="Randomly assign White and Green seats. If two players are not already sitting there, other players will be drawn in at random."
+    tooltipPosition="Above"
+  >Randomize White/Black
+  </Button>
+  <Button
+    id="swap"
+    onClick="swap"
+    fontSize="30"
+    tooltip="Switch players at White and Green seats."
+    tooltipPosition="Below"
+  >Swap White/Black
+  </Button>
+</VerticalLayout>

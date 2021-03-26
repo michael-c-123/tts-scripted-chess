@@ -17,7 +17,9 @@ INFO[2] = {
 }
 game = nil
 promo = {}
-
+ZONE_GUID = '1ab955'
+SCORECARD_GUID = '82a739'
+RANDOMIZER_GUID = '0f3ed5'
 RANDOMIZER = nil
 
 -- Buttons 170 width/height, 593 xyoffset
@@ -27,7 +29,7 @@ function onLoad(save_state)
   self.interactable = false
   Turns.enable = true
   Turns.pass_turns = false
-  RANDOMIZER = getObjectFromGUID('0f3ed5')
+  RANDOMIZER = getObjectFromGUID(RANDOMIZER_GUID)
 
   clearBoard()
 
@@ -52,6 +54,10 @@ function onLoad(save_state)
 
     if game.over then
       gameOver(game.over_code, game.over_msg, true)
+      if game.over_msg == 'by checkmate' then
+        local loser = game.over_code and game.black or game.white
+        highlightCoord(loser.king, "#FF000088")
+      end
       -- Force these off, for some reason doesn't work in gameOver()
       Wait.frames(function()
         self.UI.setAttribute('white_ctrl', 'active', false)
@@ -62,20 +68,19 @@ function onLoad(save_state)
       Global.UI.setAttribute('black_timers', 'active', true)
       updateTimers()
       Wait.time(function()
-        game.white.delta_time = os.clock()
+        game.white.delta_time = Time.time
         game.black.delta_time = game.white.delta_time
         time_live = true
       end, 3)
     end
   else -- Fresh save
-    menuReset()
     self.UI.setAttribute('main', 'active', true)
-    RANDOMIZER.UI.setAttribute('button', 'active', true)
+    RANDOMIZER.UI.setAttribute('buttons', 'active', true)
   end
 end
 
 function clearBoard()
-  local del_objs = getObjectFromGUID('1ab955').getObjects()
+  local del_objs = getObjectFromGUID(ZONE_GUID).getObjects()
   for _,del_obj in ipairs(del_objs) do
     if del_obj ~= self then
       del_obj.destruct()
@@ -118,11 +123,6 @@ end
 local menu_selected = 'untimed'
 local menu_pool, menu_incr = '', ''
 local menu_material = 1
-function menuReset()
-  menu_selected = 'untimed'
-  menu_pool, menu_incr = '', ''
-  menu_material = 1
-end
 function menuClicked(_, button, id)
   if button == '-1' then
     menu_selected = id
@@ -223,9 +223,8 @@ function ctrlRematch(player, on)
     self.UI.setAttribute('black_msg2', 'active', false)
     Global.UI.setAttribute('white_timers', 'active', false)
     Global.UI.setAttribute('black_timers', 'active', false)
-    menuReset()
     self.UI.setAttribute('main', 'active', true)
-    RANDOMIZER.UI.setAttribute('button', 'active', true)
+    RANDOMIZER.UI.setAttribute('buttons', 'active', true)
   end
 end
 
@@ -304,6 +303,7 @@ function setup(freeze_all)
       callback_function = function(p)
         p.interactable = (game.white_to_move == white) and not freeze_all
         squareAt(coord).piece = p
+        p.setVar('chesspiece', true)
       end
     })
   end
@@ -376,7 +376,7 @@ function setup(freeze_all)
   end
 
   local w_player, b_player = Player['White'], Player['Green']
-  local scorecard = getObjectFromGUID('82a739')
+  local scorecard = getObjectFromGUID(SCORECARD_GUID)
   if scorecard and not scorecard.isDestroyed() then
     if w_player.seated then scorecard.call('increment', {w_player.steam_name, 0}) end
     if b_player.seated then scorecard.call('increment', {b_player.steam_name, 0}) end
@@ -384,7 +384,7 @@ function setup(freeze_all)
 
   Wait.frames(function()
     self.UI.setAttribute('main', 'active', false)
-    RANDOMIZER.UI.setAttribute('button', 'active', false)
+    RANDOMIZER.UI.setAttribute('buttons', 'active', false)
     self.UI.setAttribute('white_ctrl', 'active', true)
     self.UI.setAttribute('black_ctrl', 'active', true)
     ctrlReset()
@@ -394,18 +394,32 @@ end
 
 local active = nil
 local first_pickup = false
+local forced_drop = nil
 function onObjectPickUp(player_color, picked_up_object)
   if not game then return end
+  local promo_type = picked_up_object.getVar('promo_selection')
+  if not promo_type and not picked_up_object.getVar('chesspiece') then return end
+
   local cur_color = game.white_to_move and 'White' or 'Green'
   if player_color ~= cur_color then
     broadcastToColor('It is not your turn.', player_color)
     picked_up_object.setVelocity({0,0,0})
     picked_up_object.setAngularVelocity({0,0,0})
     picked_up_object.drop()
+    forced_drop = picked_up_object.getGUID()
     return
   end
 
-  local promo_type = picked_up_object.getVar('promo_selection')
+  local player = Player[player_color]
+  if #player.getHoldingObjects() > 1 or #player.getSelectedObjects() > 1 then
+    for _,obj in ipairs(Player[player_color].getHoldingObjects()) do
+      obj.setVelocity({0,0,0})
+      obj.drop()
+    end
+    broadcastToColor("Please don't do that. Rewind time to fix any issues that may have occurred.", player_color)
+    return
+  end
+
   if promo_type then
     for _,obj in ipairs(promo.selections) do
       obj.destruct()
@@ -414,12 +428,16 @@ function onObjectPickUp(player_color, picked_up_object)
     squareAt(promo.pawn_coord).piece.destruct()
     local pos = coordToPos(promo.pawn_coord, promo_type)
     local bag = getObjectFromGUID(INFO[game.material][promo_type][game.white_to_move and 'wbag_guid' or 'bbag_guid'])
-    local promoted_piece = bag.takeObject({position = pos, smooth = false})
-    squareAt(promo.pawn_coord).piece = promoted_piece
-    squareAt(promo.pawn_coord).ptype = promo_type
-    promo.selections = {}
-    promo.pawn_coord = nil
-    passTurn()
+    local promoted_piece = bag.takeObject({position = pos, smooth = false,
+      callback_function = function(p)
+        p.setVar('chesspiece', true)
+        squareAt(promo.pawn_coord).piece = p
+        squareAt(promo.pawn_coord).ptype = promo_type
+        promo.pawn_coord = nil
+        promo.selections = {}
+        passTurn()
+      end})
+    return
   end
 
   local coord = posToCoord(picked_up_object.getPosition())
@@ -438,7 +456,7 @@ end
 
 function click(coord, player_color, alt)
   if not alt
-      -- and ((game.white_to_move and 'White' or 'Green') == player_color) -- DEBUG
+      and ((game.white_to_move and 'White' or 'Green') == player_color) -- DEBUG
       then
     local click_specials = squareAt(coord).specials
     clearPreviews()
@@ -454,7 +472,13 @@ function raisePieceAt(coord)
 end
 
 function onObjectDrop(player_color, dropped_object)
+  if forced_drop and forced_drop == dropped_object.getGUID() then
+    forced_drop = nil
+    return
+  end
   if not active or not game then return end
+  if not dropped_object.getVar('chesspiece') then return end
+
   if (game.white_to_move and 'White' or 'Green') ~= player_color then return false end
   local active_sq = squareAt(active)
 
@@ -568,6 +592,15 @@ function moveTo(dest, dest_specials)
 
   -- Pawn promotion
   if src_square.ptype == 'P' and dest[1] == (game.white_to_move and 8 or 1) then
+    for i=1,8 do
+      for j=1,8 do
+        local sq = squareAt({i, j})
+        if sq.piece then
+          sq.piece.interactable = false
+        end
+      end
+    end
+
     local bag_guid_field = game.white_to_move and 'wbag_guid' or 'bbag_guid'
     local ptypes = {'Q', 'N', 'R', 'B'}
     promo.selections = {}
@@ -597,18 +630,10 @@ function passTurn()
   local next_player = game.white_to_move and game.black or game.white
   local next_is_white = not game.white_to_move
 
-  for i=1,8 do
-    for j=1,8 do
-      local sq = squareAt({i, j})
-      if sq.piece then
-        sq.piece.interactable = sq.white ~= game.white_to_move
-      end
-    end
-  end
-
   local game_over_code, msg
   game.white.in_check, game.black.in_check = false, false
   if isCheck(next_is_white) then
+    highlightCoord(next_player.king, "#FF000088")
     next_player.in_check = true
     if not hasMoves(next_is_white) then
       local winner = next_is_white and 'Black' or 'White'
@@ -616,7 +641,6 @@ function passTurn()
       game_over_code = not next_is_white
     else
       broadcastToAll('Check!', {1,1,1})
-      highlightCoord(next_player.king, "#FF000088")
     end
   else
     if not hasMoves(next_is_white) then
@@ -637,8 +661,17 @@ function passTurn()
     end
 
     game.white_to_move = next_is_white
-    next_player.delta_time = os.clock()
+    next_player.delta_time = Time.time
     Turns.turn_color = game.white_to_move and "White" or "Green"
+
+    for i=1,8 do
+      for j=1,8 do
+        local sq = squareAt({i, j})
+        if sq.piece then
+          sq.piece.interactable = sq.white == game.white_to_move
+        end
+      end
+    end
 
     if next_is_white then
       game.turn = game.turn + 1
@@ -1132,7 +1165,7 @@ function onUpdate()
     ticker = ticker + 1
     if ticker == INTERVAL then
       local player = game.white_to_move and game.white or game.black
-      local new_time = os.clock()
+      local new_time = Time.time
       if game.stopwatched then
         player.timer = player.timer + (new_time - player.delta_time);
       else
@@ -1240,9 +1273,13 @@ function setButtonEnabled(coord, enable)
 end
 
 function debug_printBoard()
+  if not game or not game.board then
+    log('None')
+    return
+  end
   local str = ''
-  for _,row in ipairs(game) do
-    for _,square in ipairs(row) do
+  for i=8,1,-1 do
+    for _,square in ipairs(game.board[i]) do
       if square.piece == nil then
         str = str .. '.'
       elseif square.ptype then
@@ -1251,8 +1288,6 @@ function debug_printBoard()
         else
           str = str .. square.ptype:lower()
         end
-      else
-        str = str .. 'X'
       end
     end
     str = str .. '\n'
@@ -1261,11 +1296,5 @@ function debug_printBoard()
 end
 
 function onScriptingButtonUp(index, player_color)
-  -- debug_printBoard()
-  local objs = Player['White'].getSelectedObjects()
-  local str = ''
-  for _,obj in ipairs(objs) do
-    str = str .. string.format("getObjectFromGUID('%s').interactable = false\n", obj.guid)
-  end
-  log(str)
+  debug_printBoard()
 end
