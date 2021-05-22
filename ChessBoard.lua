@@ -112,7 +112,7 @@ function onSave()
         local copy_sq = copy.board[i][j]
         copy_sq.ptype = sq.ptype
         copy_sq.white = sq.white
-        copy_sq.specials = {}
+        copy_sq.moves = {}
       end
     end
   end
@@ -263,10 +263,10 @@ function startBoardStatus(material)
 
   local set_coord = function(coord, ptype, white)
     setSquareAt(coord, {
-      ptype = ptype,
-      white = white,
-      specials = {}
-      -- Special fields: move, castle, en passant, double_move
+      ptype = ptype, -- which piece is on this square
+      white = white,  -- whether or not the piece at this square is white
+      moves = {}, -- a list of Moves available to this square's piece
+      -- trigger_move indicates what Move is triggered when clicking this square
     })
   end
 
@@ -389,7 +389,23 @@ function setup(freeze_all)
     self.UI.setAttribute('black_ctrl', 'active', true)
     ctrlReset()
   end, 2)
+  generateMoves(game.white_to_move)
   Turns.turn_color = game.white_to_move and 'White' or 'Green'
+end
+
+function onPlayerAction(player, action, targets)
+  if action == Player.Action.PickUp then
+    if #targets > 1 then return false end
+    local cur_color = game.white_to_move and 'White' or 'Green'
+    if player.color ~= cur_color then
+      broadcastToColor('It is not your turn.', player.color)
+      return false
+    end
+  end
+  if action == Player.Action.Group then
+    return false
+  end
+  return true
 end
 
 local active = nil
@@ -399,26 +415,6 @@ function onObjectPickUp(player_color, picked_up_object)
   if not game then return end
   local promo_type = picked_up_object.getVar('promo_selection')
   if not promo_type and not picked_up_object.getVar('chesspiece') then return end
-
-  local cur_color = game.white_to_move and 'White' or 'Green'
-  if player_color ~= cur_color then
-    broadcastToColor('It is not your turn.', player_color)
-    picked_up_object.setVelocity({0,0,0})
-    picked_up_object.setAngularVelocity({0,0,0})
-    picked_up_object.drop()
-    forced_drop = picked_up_object.getGUID()
-    return
-  end
-
-  local player = Player[player_color]
-  if #player.getHoldingObjects() > 1 or #player.getSelectedObjects() > 1 then
-    for _,obj in ipairs(Player[player_color].getHoldingObjects()) do
-      obj.setVelocity({0,0,0})
-      obj.drop()
-    end
-    broadcastToColor("Please don't do that. Rewind time to fix any issues that may have occurred.", player_color)
-    return
-  end
 
   if promo_type then
     for _,obj in ipairs(promo.selections) do
@@ -446,36 +442,21 @@ function onObjectPickUp(player_color, picked_up_object)
 
   if square and square.piece and (square.white == game.white_to_move) then
     if coordEquals(coord, active) then return end
-    clearPreviews()
     first_pickup = true
-    active = coord
     picked_up_object.use_gravity = false
-    showMoves(coord)
+    displayMoves(coord)
   end
 end
 
 function click(coord, player_color, alt)
   if not alt
-      and ((game.white_to_move and 'White' or 'Green') == player_color) -- DEBUG
+      and ((game.white_to_move and 'White' or 'Green') == player_color) -- DEBUG comment out if testing
       then
-    local click_specials = squareAt(coord).specials
-    clearPreviews()
-    moveTo(coord, click_specials)
+    makeMove(squareAt(coord).trigger_move)
   end
-end
-
-function raisePieceAt(coord)
-  local sq = squareAt(coord)
-  sq.piece.setVelocity({0,0,0})
-  sq.piece.setAngularVelocity({0,0,0})
-  sq.piece.setPositionSmooth(coordToPos(coord, sq.ptype, true), false, true)
 end
 
 function onObjectDrop(player_color, dropped_object)
-  if forced_drop and forced_drop == dropped_object.getGUID() then
-    forced_drop = nil
-    return
-  end
   if not active or not game then return end
   if not dropped_object.getVar('chesspiece') then return end
 
@@ -488,59 +469,100 @@ function onObjectDrop(player_color, dropped_object)
 
     if not coord then -- Outside the chessboard
       raisePieceAt(active)
-    elseif drop_sq.specials and drop_sq.specials.move then
-      local drop_specials = drop_sq.specials -- Preserves info cleared by clearPreviews()
-      clearPreviews()
-      moveTo(coord, drop_specials)
+    elseif drop_sq.trigger_move then
+      makeMove(drop_sq.trigger_move)
     elseif coordEquals(coord, active) then
       if first_pickup then
         raisePieceAt(active)
       else -- Clicked again to unselect piece
-        clearPreviews()
+        undisplayMoves()
         dropped_object.use_gravity = true
-        active = nil
       end
-    else -- Attempted to drop at some random invalid square
+    else -- Attempted to drop at some invalid square
       raisePieceAt(active)
     end
   end
   first_pickup = false
 end
 
-function moveTo(dest, dest_specials)
-  local src_square = squareAt(active)
-  local dest_square = squareAt(dest)
-  if not dest_specials then dest_specials = {} end
+local FILES = {'a', 'b', 'c', 'd', 'e', 'f', 'g,', 'h'}
+local PROMOTIONS = {'Q', 'N', 'R', 'B'}
+-- `special` can have the following values: nil, castle, qcastle, ep, double, [1-4] (PROMOTIONS)
+function Move(src, dest, ptype, captured_ptype, special)
+  local result = {
+    ptype=ptype, src=src, dest=dest,
+    captured_ptype=captured_ptype, special=special
+  }
+
+  function result:getSAN()
+    if self.special == 'castle' then return 'O-O'
+    elseif self.special == 'qcastle' then return 'O-O-O' end
+
+    local dest_san = FILES[self.dest[2]] .. tostring(self.dest[1])
+    local capture_san = (self.captured_ptype or self.special == 'ep') and 'x' or ''
+    local disambig_san = ''
+    local ptype_san = ''
+    local promotion_san = ''
+
+    if self.ptype == 'P' then
+      if self.captured_ptype then
+        disambig_san = FILES[self.src[2]]
+      end
+      if type(self.special) == 'number' then
+        promotion_san = '=' .. PROMOTIONS[self.special]
+      end
+    else
+      ptype_san = self.ptype
+      if self.disambig_file then
+        disambig_san = FILES[self.src[2]]
+      end
+      if self.disambig_rank then
+        disambig_san = disambig_san .. tostring(self.src[1])
+      end
+    end
+    return ptype_san .. disambig_san .. capture_san .. dest_san .. promotion_san
+  end
+
+  return result
+end
+
+function makeMove(move)
+  undisplayMoves()
+
+  local src, dest = move.src, move.dest
+  local src_sq = squareAt(src)
+  local dest_sq = squareAt(dest)
   local cur_player = game.white_to_move and game.white or game.black
 
-  if dest_square.piece then
-    dest_square.piece.destruct()
+  if dest_sq.piece then
+    dest_sq.piece.destruct()
   end
-  src_square.piece.setAngularVelocity({0,0,0})
-  src_square.piece.setVelocity({0,0,0})
-  src_square.piece.setPositionSmooth(
-    coordToPos(dest, src_square.ptype),
+  src_sq.piece.setAngularVelocity({0,0,0})
+  src_sq.piece.setVelocity({0,0,0})
+  src_sq.piece.setPositionSmooth(
+    coordToPos(dest, src_sq.ptype),
   false, true)
-  src_square.piece.use_gravity = true
+  src_sq.piece.use_gravity = true
 
   -- Handle en passant and remember double moves for en passant
   local pawn_move = game.white_to_move and 1 or -1
   local assigned_ep = false
-  if src_square.ptype == 'P' then
-    if dest_specials.double_move then
+  if src_sq.ptype == 'P' then
+    if move.special == 'double' then
       game.en_passant_coord = {dest[1] - pawn_move, dest[2]}
       assigned_ep = true
-    elseif dest_specials.en_passant then
+    elseif move.special == 'ep' then
       squareAt({dest[1] - pawn_move, dest[2]}).piece.destruct()
       setSquareAt({dest[1] - pawn_move, dest[2]}, {})
     end
   end
   if not assigned_ep then game.en_passant_coord = nil end
 
-  if src_square.ptype == 'K' then
-    cur_player.king = dest
-
-    if dest_specials.castle then
+  -- Handle king moves
+  if src_sq.ptype == 'K' then
+    cur_player.king = {dest[1], dest[2]}
+    -- Castling
+    if move.special == 'castle' or move.special == 'qcastle' then
       local rook_file_src, rook_file_dest
       if dest[2] == 7 then
         rook_src, rook_dest = {dest[1], 8}, {dest[1], 6}
@@ -550,23 +572,23 @@ function moveTo(dest, dest_specials)
       squareAt(rook_src).piece.setPositionSmooth(
         coordToPos(rook_dest, 'R'),
       false, true)
-      setSquareAt(rook_dest, squareAt(rook_src));
+      setSquareAt(rook_dest, squareAt(rook_src))
       setSquareAt(rook_src, {})
     end
     cur_player.castle, cur_player.qcastle = false, false
   end
 
   -- First rook move, invalidate castling on that side
-  if src_square.ptype == 'R' then
+  if src_sq.ptype == 'R' then
     local r_rank = game.white_to_move and 1 or 8
-    if cur_player.castle and coordEquals(active, {r_rank, 8}) then
+    if cur_player.castle and coordEquals(src, {r_rank, 8}) then
       cur_player.castle = false
-    elseif cur_player.qcastle and coordEquals(active, {r_rank, 1}) then
+    elseif cur_player.qcastle and coordEquals(src, {r_rank, 1}) then
       cur_player.qcastle = false
     end
   end
   -- Rook captured, invalidate castling for opponent on that side
-  if dest_square.ptype == 'R' then
+  if dest_sq.ptype == 'R' then
     local r_rank = game.white_to_move and 8 or 1
     local opp_player = game.white_to_move and game.black or game.white
     if opp_player.castle and coordEquals(dest, {r_rank, 8}) then
@@ -576,8 +598,8 @@ function moveTo(dest, dest_specials)
     end
   end
 
-  setSquareAt(dest, src_square)
-  setSquareAt(active, {})
+  setSquareAt(dest, src_sq)
+  setSquareAt(src, {})
 
   -- Clear red check highlight
   highlightCoord(cur_player.king, "#00000000")
@@ -587,11 +609,11 @@ function moveTo(dest, dest_specials)
     highlightCoord(from, "#00000000")
     highlightCoord(to, "#00000000")
   end
-  game.last_move_from = active
+  game.last_move_from = src
   game.last_move_to = dest
 
   -- Pawn promotion
-  if src_square.ptype == 'P' and dest[1] == (game.white_to_move and 8 or 1) then
+  if src_sq.ptype == 'P' and dest[1] == (game.white_to_move and 8 or 1) then
     for i=1,8 do
       for j=1,8 do
         local sq = squareAt({i, j})
@@ -625,17 +647,17 @@ function moveTo(dest, dest_specials)
 end
 
 function passTurn()
-  active = nil
-
   local next_player = game.white_to_move and game.black or game.white
   local next_is_white = not game.white_to_move
+
+  local hasMoves = generateMoves(next_is_white)
 
   local game_over_code, msg
   game.white.in_check, game.black.in_check = false, false
   if isCheck(next_is_white) then
     highlightCoord(next_player.king, "#FF000088")
     next_player.in_check = true
-    if not hasMoves(next_is_white) then
+    if not hasMoves then
       local winner = next_is_white and 'Black' or 'White'
       msg = 'by checkmate'
       game_over_code = not next_is_white
@@ -643,7 +665,7 @@ function passTurn()
       broadcastToAll('Check!', {1,1,1})
     end
   else
-    if not hasMoves(next_is_white) then
+    if not hasMoves then
       msg = 'by stalemate'
     end
   end
@@ -682,6 +704,86 @@ function passTurn()
   end
 end
 
+function generateMoves(white)
+  local disambig_map, flag_map = {}, {}
+  local has_moves = false
+  for rank,row in ipairs(game.board) do
+    for file,sq in ipairs(row) do
+      if sq.white == white and sq.ptype then
+        local coord = {rank, file}
+        local moves = _G['moves_' .. sq.ptype](coord)
+        if #moves > 0 then has_moves = true end
+        sq.moves = moves
+
+        if sq.ptype ~= 'K' and sq.ptype ~= 'P' then
+          for _,move in ipairs(moves) do
+            local str = move.ptype .. tostring(move.dest[1]) .. tostring(move.dest[2])
+            local conflicts = disambig_map[str]
+            if conflicts then
+              table.insert(conflicts, move)
+              flag_map[str] = true
+            else
+              disambig_map[str] = {move}
+            end
+          end
+        end
+      else
+        sq.moves = nil
+      end
+    end
+  end
+
+  -- Go through moves with the same SAN string and disambiguate
+  for str,_ in pairs(flag_map) do
+    local conflicts = disambig_map[str]
+    for i=1,#conflicts do
+      local x = conflicts[i]
+      local conflicting_rank = false
+      for j=1,#conflicts do
+        if i ~= j then
+          local y = conflicts[j]
+          if x.src[2] == y.src[2] then -- Same files
+            x.disambig_rank = true
+          elseif x.src[1] == y.src[1] then
+            conflicting_rank = true
+          end
+        end
+      end
+      x.disambig_file = (not x.disambig_rank) or conflicting_rank
+    end
+  end
+  return has_moves
+end
+
+function displayMoves(coord)
+  if active then undisplayMoves() end
+  active = coord
+  local sq = squareAt(coord)
+  for _,move in ipairs(sq.moves) do
+    local id = string.format('i%d%d', move.dest[1], move.dest[2])
+    local image_type = squareAt(move.dest).ptype and 'capture' or 'circle'
+    self.UI.setAttribute(id, 'image', image_type)
+    setButtonEnabled(move.dest, true)
+    squareAt(move.dest).trigger_move = move
+  end
+end
+
+function undisplayMoves()
+  if active then
+    local sq = squareAt(active)
+    for _,move in ipairs(sq.moves) do
+      local id = string.format('i%d%d', move.dest[1], move.dest[2])
+      self.UI.setAttribute(id, 'image', 'empty')
+      setButtonEnabled(move.dest, false)
+      squareAt(move.dest).trigger_move = nil
+    end
+    sq.piece.setVelocity({0,0,0})
+    sq.piece.use_gravity = true
+    sq.piece.setPositionSmooth(coordToPos(active, sq.ptype), false, true)
+    active = nil
+  end
+end
+
 local scan = {}
 -- Returns whether there is a piece at COORD matching the player indicated
 -- by WHITE, with ptype matching any in PTYPES (default: all)
@@ -695,7 +797,7 @@ function scan:match(coord, white, ptypes)
     square = squareAt(coord)
   end
   if white == nil then white = game.white_to_move end
-  if not square or not square.piece then return false end
+  if not square or not square.ptype then return false end
   return square.white == white
     and (not ptypes or ptypes[square.ptype])
 end
@@ -708,121 +810,72 @@ function scan:empty(coord)
   else
     square = squareAt(coord)
   end
-  return square and square.piece == nil
+  return square and square.ptype == nil
 end
 
-local move_previews = {}
-local capture_previews = {}
-function showMoves(coord)
-  local moves, captures, castles, double_move, en_passant =
-    _G['moves_'..squareAt(coord).ptype](coord)
-  for _,move in ipairs(moves) do
-    previewMove(coord, move)
-  end
-  for _,capture in ipairs(captures) do
-    previewCapture(coord, capture)
-  end
+-- Check that the move is valid; if so, put in LIST
+function enter(list, from_coord, to_coord, special)
+  local castle = (special == 'castle') or (special == 'qcastle')
+  local en_passant = special == 'ep'
 
-  if double_move then
-    previewMove(coord, double_move)
-    squareAt(double_move).specials.double_move = true
-  elseif en_passant then
-    previewMove(coord, en_passant)
-    squareAt(en_passant).specials.en_passant = true
+  if validateMove(from_coord, to_coord, castle, en_passant) then
+    local move = Move(
+      from_coord, to_coord,
+      squareAt(from_coord).ptype,
+      squareAt(to_coord).ptype,
+      special
+    )
+    table.insert(list, move)
+    return true
   end
-
-  if castles then
-    for _,castle_move in ipairs(castles) do
-      previewMove(coord, castle_move)
-      squareAt(castle_move).specials.castle = true
-    end
-  end
+  return false
 end
 
-function clearPreviews()
-  if active then
-    squareAt(active).piece.setVelocity({0,0,0})
-    squareAt(active).piece.use_gravity = true
-    squareAt(active).piece.setPositionSmooth(coordToPos(active, squareAt(active).ptype), false, true)
-  end
-  for _,coord in ipairs(move_previews) do
-    local square = squareAt(coord)
-    local id = string.format('i%d%d', coord[1], coord[2])
-    self.UI.setAttribute(id, 'image', 'empty')
-    setButtonEnabled(coord, false)
-    square.specials = {}
-  end
-  move_previews = {}
-  for _,coord in ipairs(capture_previews) do
-    local square = squareAt(coord)
-    local id = string.format('i%d%d', coord[1], coord[2])
-    self.UI.setAttribute(id, 'image', 'empty')
-    setButtonEnabled(coord, false)
-    square.specials = {}
-  end
-  capture_previews = {}
-end
-
--- Check that MOVE is valid; if so, put in LIST, or return true if STOP flag on
-function enter(from_coord, to_coord, list, stop)
-  if validateMove(from_coord, to_coord) then
-    if stop then
-      return true
-    else
-      table.insert(list, to_coord)
-    end
-  end
-end
-
-function moves_P(coord, stop)
+function moves_P(coord)
   local rank, file = coord[1], coord[2]
   local step = squareAt(coord).white and 1 or -1
   local start = squareAt(coord).white and 2 or 7
-  local moves, captures = {}, {}
-  local double_move, en_passant
+  local moves = {}
   local move
 
   -- One step up
   move = {rank + step, file}
   if scan:empty(move) then
-    if enter(coord, move, moves, stop) then return end
+    enter(moves, coord, move)
     -- First double move
     move = {rank + 2*step, file}
     if rank == start and scan:empty(move) then
-      if validateMove(coord, move) then
-        if stop then return end
-        double_move = move
-      end
+      enter(moves, coord, move, 'double')
     end
   end
 
   -- Diagonal captures
   move = {rank + step, file + 1}
   if scan:match(move, not squareAt(coord).white) then
-    if enter(coord, move, captures, stop) then return end
-  elseif coordEquals(move, game.en_passant_coord) and validateMove(coord, move, nil, true) then
-    en_passant = move
+    enter(moves, coord, move)
+  elseif coordEquals(move, game.en_passant_coord) then
+    enter(moves, coord, move, 'ep')
   end
   move = {rank + step, file - 1}
   if scan:match(move, not squareAt(coord).white) then
-    if enter(coord, move, captures, stop) then return end
-  elseif coordEquals(move, game.en_passant_coord) and validateMove(coord, move, nil, true) then
-    en_passant = move
+    enter(moves, coord, move)
+  elseif coordEquals(move, game.en_passant_coord) then
+    enter(moves, coord, move, 'ep')
   end
 
-  return moves, captures, nil, double_move, en_passant
+  return moves
 end
 
-function movesAcrossLine(coord, step_i, step_j, moves, captures, stop)
+function movesAcrossLine(moves, coord, step_i, step_j)
   local rank, file = coord[1], coord[2]
   local i, j = step_i, step_j
   while true do
     local move = {rank + i, file + j}
     if scan:empty(move) then
-      if enter(coord, move, moves, stop) then return true end
+      enter(moves, coord, move)
       i, j = i + step_i, j + step_j
     elseif scan:match(move, not squareAt(coord).white) then
-      if enter(coord, move, captures, stop) then return true end
+      enter(moves, coord, move)
       break
     else
       break
@@ -830,39 +883,40 @@ function movesAcrossLine(coord, step_i, step_j, moves, captures, stop)
   end
 end
 
-function moves_B(coord, stop)
-  local moves, captures = {}, {}
-  if movesAcrossLine(coord, 1, 1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 1, -1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, -1, 1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, -1, -1, moves, captures, stop) then return end
-  return moves, captures
+function moves_B(coord)
+  local moves = {}
+  movesAcrossLine(moves, coord, 1, 1)
+  movesAcrossLine(moves, coord, 1, -1)
+  movesAcrossLine(moves, coord, -1, 1)
+  movesAcrossLine(moves, coord, -1, -1)
+  return moves
 end
 
-function moves_R(coord, stop)
-  local moves, captures = {}, {}
-  if movesAcrossLine(coord, 0, 1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 0, -1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 1, 0, moves, captures, stop) then return end
-  if movesAcrossLine(coord, -1, 0, moves, captures, stop) then return end
-  return moves, captures
+function moves_R(coord)
+  local moves = {}
+  movesAcrossLine(moves, coord, 0, 1)
+  movesAcrossLine(moves, coord, 0, -1)
+  movesAcrossLine(moves, coord, 1, 0)
+  movesAcrossLine(moves, coord, -1, 0)
+  return moves
 end
 
-function moves_Q(coord, stop)
-  local moves, captures = {}, {}
-  if movesAcrossLine(coord, 1, 1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 1, -1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, -1, 1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, -1, -1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 0, 1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 0, -1, moves, captures, stop) then return end
-  if movesAcrossLine(coord, 1, 0, moves, captures, stop) then return end
-  if movesAcrossLine(coord, -1, 0, moves, captures, stop) then return end
-  return moves, captures
+function moves_Q(coord)
+  local moves = {}
+  movesAcrossLine(moves, coord, 1, 1)
+  movesAcrossLine(moves, coord, 1, -1)
+  movesAcrossLine(moves, coord, -1, 1)
+  movesAcrossLine(moves, coord, -1, -1)
+  movesAcrossLine(moves, coord, 0, 1)
+  movesAcrossLine(moves, coord, 0, -1)
+  movesAcrossLine(moves, coord, 1, 0)
+  movesAcrossLine(moves, coord, -1, 0)
+
+  return moves
 end
 
-function moves_N(coord, stop)
-  local candidates, moves, captures = {}, {}, {}
+function moves_N(coord)
+  local candidates, moves = {}, {}
   local rank, file = coord[1], coord[2]
   table.insert(candidates, {rank + 1, file + 2})
   table.insert(candidates, {rank + 2, file + 1})
@@ -874,17 +928,15 @@ function moves_N(coord, stop)
   table.insert(candidates, {rank - 2, file - 1})
 
   for _,move in ipairs(candidates) do
-    if scan:empty(move) then
-      if enter(coord, move, moves, stop) then return end
-    elseif scan:match(move, not squareAt(coord).white) then
-      if enter(coord, move, captures, stop) then return end
+    if scan:empty(move) or scan:match(move, not squareAt(coord).white) then
+      enter(moves, coord, move)
     end
   end
-  return moves, captures
+  return moves
 end
 
-function moves_K(coord, stop)
-  local candidates, moves, captures, castles = {}, {}, {}, {}
+function moves_K(coord)
+  local candidates, moves = {}, {}
   local rank, file = coord[1], coord[2]
   table.insert(candidates, {rank + 1, file})
   table.insert(candidates, {rank - 1, file})
@@ -897,35 +949,28 @@ function moves_K(coord, stop)
   table.insert(candidates, {rank + 1, file + 1})
 
   for _,move in ipairs(candidates) do
-    if scan:empty(move) then
-      if enter(coord, move, moves, stop) then return end
-    elseif scan:match(move, not squareAt(coord).white) then
-      if enter(coord, move, captures, stop) then return end
+    if scan:empty(move) or scan:match(move, not squareAt(coord).white) then
+      enter(moves, coord, move)
     end
   end
 
-  local castles = {}
   local cur_player = squareAt(coord).white and game.white or game.black
 
   if not cur_player.in_check then
     if cur_player.castle
         and scan:empty({rank, 6})
         and scan:empty({rank, 7}) then
-      if validateMove(coord, {rank, 7}, true) then
-        table.insert(castles, {rank, 7})
-      end
+      enter(moves, coord, {rank, 7}, 'castle')
     end
     if cur_player.qcastle
         and scan:empty({rank, 2})
         and scan:empty({rank, 3})
         and scan:empty({rank, 4}) then
-      if validateMove(coord, {rank, 3}, true) then
-        table.insert(castles, {rank, 3})
-      end
+      enter(moves, coord, {rank, 3}, 'qcastle')
     end
   end
 
-  return moves, captures, castles
+  return moves
 end
 
 function validateMove(from_coord, to_coord, castle, en_passant)
@@ -964,27 +1009,6 @@ function validateMove(from_coord, to_coord, castle, en_passant)
   scan.changes = nil
 
   return not is_into_check
-end
-
-function previewMove(from_coord, to_coord)
-  local ptype = squareAt(from_coord).ptype
-  local pos = coordToPos(to_coord, ptype)
-  local white = squareAt(from_coord).white
-
-  local id = string.format('i%d%d', to_coord[1], to_coord[2])
-  self.UI.setAttribute(id, 'image', 'circle')
-  setButtonEnabled(to_coord, true)
-  squareAt(to_coord).specials = {move=true}
-  table.insert(move_previews, to_coord)
-end
-
-function previewCapture(from_coord, to_coord)
-  local target = squareAt(to_coord)
-  local id = string.format('i%d%d', to_coord[1], to_coord[2])
-  self.UI.setAttribute(id, 'image', 'capture')
-  setButtonEnabled(to_coord, true)
-  target.specials.move = true
-  table.insert(capture_previews, to_coord)
 end
 
 local knight_set = {N=true}
@@ -1049,33 +1073,14 @@ function isCheck(white)
     or look_line(0, -1, ortho_set)
 end
 
-function hasMoves(white)
-  local start, stop, step
-  if white then
-    start, stop, step = 1, 8, 1
-  else
-    start, stop, step = 8, 1, -1
-  end
-  for i=start,stop,step do
-    for j=start,stop,step do
-      local coord = {i, j}
-      local sq = squareAt(coord)
-      if sq.ptype
-          and sq.white == white
-          and _G['moves_' .. sq.ptype](coord, true) == nil then
-        return true
-      end
-    end
-  end
-  return false
-end
-
 function gameOver(code, msg, no_increment)
   time_live = false
   game.over = true
   game.over_code = code
   game.over_msg = msg
-  clearPreviews()
+  if active then
+    undisplayMoves()
+  end
   for i=1,8 do
     for j=1,8 do
       local sq = squareAt({i, j})
@@ -1254,6 +1259,13 @@ function squareAt(coord)
 end
 function setSquareAt(coord, val)
   game.board[coord[1]][coord[2]] = val
+end
+
+function raisePieceAt(coord)
+  local sq = squareAt(coord)
+  sq.piece.setVelocity({0,0,0})
+  sq.piece.setAngularVelocity({0,0,0})
+  sq.piece.setPositionSmooth(coordToPos(coord, sq.ptype, true), false, true)
 end
 
 function highlightCoord(coord, color)
