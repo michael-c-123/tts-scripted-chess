@@ -52,6 +52,8 @@ function onLoad(save_state)
       highlightCoord(game.last_move_to, "#FFFF0055")
     end
 
+    printToAll(toPGN())
+
     if game.over then
       gameOver(game.over_code, game.over_msg, true)
       if game.over_msg == 'by checkmate' then
@@ -97,7 +99,7 @@ end
 function onSave()
   if not game or not game.board then return end
 
-  -- Create a copy with no piece references or specials
+  -- Create a copy with no piece references
   local copy = {}
   for orig_key, orig_value in pairs(game) do
       copy[orig_key] = orig_value
@@ -115,6 +117,24 @@ function onSave()
         copy_sq.moves = {}
       end
     end
+  end
+
+  copy.white, copy.black = {}, {}
+  for orig_key, orig_value in pairs(game.white) do
+    copy.white[orig_key] = orig_value
+  end
+  for orig_key, orig_value in pairs(game.black) do
+    copy.black[orig_key] = orig_value
+  end
+
+  copy.white.graveyard, copy.black.graveyard = {}, {}
+  for _,item in ipairs(game.white.graveyard) do
+    local to_insert = {ptype = item.ptype}
+    table.insert(copy.white.graveyard, to_insert)
+  end
+  for _,item in ipairs(game.black.graveyard) do
+    local to_insert = {ptype = item.ptype}
+    table.insert(copy.black.graveyard, to_insert)
   end
 
   return JSON.encode(copy)
@@ -256,9 +276,11 @@ function startBoardStatus(material)
   game.white.qcastle, game.black.qcastle = true, true
   game.white.in_check, game.black.in_check = false, false
   game.white.king, game.black.king = {1, 5}, {8, 5}
+  game.white.graveyard, game.black.graveyard = {}, {}
   game.en_passant_coord = nil
   game.last_move_from, game.last_move_to = nil, nil
   game.turn = 1
+  game.history = {}
   game.material = material
 
   local set_coord = function(coord, ptype, white)
@@ -297,13 +319,14 @@ function setup(freeze_all)
   local setup_square = function(coord, ptype, white)
     local bag_guid = white and 'wbag_guid' or 'bbag_guid'
     getObjectFromGUID(INFO[game.material][ptype][bag_guid]).takeObject({
-      position = coordToPos(coord, ptype),
+      position = coordToPos(coord),
       rotation = {0, white and 180 or 0, 0},
       smooth = false,
       callback_function = function(p)
         p.interactable = (game.white_to_move == white) and not freeze_all
         squareAt(coord).piece = p
         p.setVar('chesspiece', true)
+        p.setPosition(coordToPos(coord, p))
       end
     })
   end
@@ -421,17 +444,21 @@ function onObjectPickUp(player_color, picked_up_object)
       obj.destruct()
     end
 
-    squareAt(promo.pawn_coord).piece.destruct()
-    local pos = coordToPos(promo.pawn_coord, promo_type)
+    local pawn_coord = promo.move.dest
+    squareAt(pawn_coord).piece.destruct()
+    local pos = coordToPos(pawn_coord)
     local bag = getObjectFromGUID(INFO[game.material][promo_type][game.white_to_move and 'wbag_guid' or 'bbag_guid'])
     local promoted_piece = bag.takeObject({position = pos, smooth = false,
       callback_function = function(p)
         p.setVar('chesspiece', true)
-        squareAt(promo.pawn_coord).piece = p
-        squareAt(promo.pawn_coord).ptype = promo_type
-        promo.pawn_coord = nil
+        p.setPosition(coordToPos(pawn_coord, p))
+        squareAt(pawn_coord).piece = p
+        squareAt(pawn_coord).ptype = promo_type
+        local move_to_send = promo.move
+        move_to_send.special = promo_type
+        promo.move = nil
         promo.selections = {}
-        passTurn()
+        passTurn(move_to_send)
       end})
     return
   end
@@ -476,7 +503,6 @@ function onObjectDrop(player_color, dropped_object)
         raisePieceAt(active)
       else -- Clicked again to unselect piece
         undisplayMoves()
-        dropped_object.use_gravity = true
       end
     else -- Attempted to drop at some invalid square
       raisePieceAt(active)
@@ -485,45 +511,44 @@ function onObjectDrop(player_color, dropped_object)
   first_pickup = false
 end
 
-local FILES = {'a', 'b', 'c', 'd', 'e', 'f', 'g,', 'h'}
-local PROMOTIONS = {'Q', 'N', 'R', 'B'}
--- `special` can have the following values: nil, castle, qcastle, ep, double, [1-4] (PROMOTIONS)
+local FILES = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'}
+-- `special` can have the following values: nil, castle, qcastle, ep, double, Q, N, R, B)
 function Move(src, dest, ptype, captured_ptype, special)
-  local result = {
+  return {
     ptype=ptype, src=src, dest=dest,
     captured_ptype=captured_ptype, special=special
   }
+end
 
-  function result:getSAN()
-    if self.special == 'castle' then return 'O-O'
-    elseif self.special == 'qcastle' then return 'O-O-O' end
+function getSAN(move)
+  if move.special == 'castle' then return 'O-O'
+  elseif move.special == 'qcastle' then return 'O-O-O' end
 
-    local dest_san = FILES[self.dest[2]] .. tostring(self.dest[1])
-    local capture_san = (self.captured_ptype or self.special == 'ep') and 'x' or ''
-    local disambig_san = ''
-    local ptype_san = ''
-    local promotion_san = ''
+  local dest_san = FILES[move.dest[2]] .. tostring(move.dest[1])
+  local capture_san = (move.captured_ptype or move.special == 'ep') and 'x' or ''
+  local disambig_san = ''
+  local ptype_san = ''
+  local promotion_san = ''
+  local append_san = move.append or ''
 
-    if self.ptype == 'P' then
-      if self.captured_ptype then
-        disambig_san = FILES[self.src[2]]
-      end
-      if type(self.special) == 'number' then
-        promotion_san = '=' .. PROMOTIONS[self.special]
-      end
-    else
-      ptype_san = self.ptype
-      if self.disambig_file then
-        disambig_san = FILES[self.src[2]]
-      end
-      if self.disambig_rank then
-        disambig_san = disambig_san .. tostring(self.src[1])
-      end
+  if move.ptype == 'P' then
+    if move.captured_ptype then
+      disambig_san = FILES[move.src[2]]
     end
-    return ptype_san .. disambig_san .. capture_san .. dest_san .. promotion_san
+    if move.special and string.len(move.special) == 1 then
+      promotion_san = '=' .. move.special
+    end
+  else
+    ptype_san = move.ptype
+    if move.disambig_file then
+      disambig_san = FILES[move.src[2]]
+    end
+    if move.disambig_rank then
+      disambig_san = disambig_san .. tostring(move.src[1])
+    end
   end
-
-  return result
+  return ptype_san .. disambig_san .. capture_san 
+      .. dest_san .. promotion_san .. append_san
 end
 
 function makeMove(move)
@@ -535,12 +560,12 @@ function makeMove(move)
   local cur_player = game.white_to_move and game.white or game.black
 
   if dest_sq.piece then
-    dest_sq.piece.destruct()
+    sendToGraveyard(dest, dest_sq.white)
   end
   src_sq.piece.setAngularVelocity({0,0,0})
   src_sq.piece.setVelocity({0,0,0})
   src_sq.piece.setPositionSmooth(
-    coordToPos(dest, src_sq.ptype),
+    coordToPos(dest, src_sq.piece),
   false, true)
   src_sq.piece.use_gravity = true
 
@@ -552,7 +577,7 @@ function makeMove(move)
       game.en_passant_coord = {dest[1] - pawn_move, dest[2]}
       assigned_ep = true
     elseif move.special == 'ep' then
-      squareAt({dest[1] - pawn_move, dest[2]}).piece.destruct()
+      sendToGraveyard({dest[1] - pawn_move, dest[2]}, not game.white_to_move)
       setSquareAt({dest[1] - pawn_move, dest[2]}, {})
     end
   end
@@ -570,7 +595,7 @@ function makeMove(move)
         rook_src, rook_dest = {dest[1], 1}, {dest[1], 4}
       end
       squareAt(rook_src).piece.setPositionSmooth(
-        coordToPos(rook_dest, 'R'),
+        coordToPos(rook_dest, squareAt(rook_src).piece),
       false, true)
       setSquareAt(rook_dest, squareAt(rook_src))
       setSquareAt(rook_src, {})
@@ -626,33 +651,82 @@ function makeMove(move)
     local bag_guid_field = game.white_to_move and 'wbag_guid' or 'bbag_guid'
     local ptypes = {'Q', 'N', 'R', 'B'}
     promo.selections = {}
-    promo.pawn_coord = dest
+    promo.move = move
     local callback = function(obj, ptype)
       obj.setColorTint({1,1,1,0.4})
       obj.use_gravity = false
       obj.setVar('promo_selection', ptype)
+      local pos = obj.getPosition()
+      pos.y = coordToPos({0,0}, obj)[2]
+      obj.setPosition(pos)
       table.insert(promo.selections, obj)
     end
     for i=1,4 do
       local bag = getObjectFromGUID(INFO[game.material][ptypes[i]][bag_guid_field])
       local j = game.white_to_move and i or -i
       local k = game.white_to_move and 1 or -1
-      local pos = coordToPos({dest[1] + pawn_move, dest[2] + j - k}, ptypes[i])
+      local pos = coordToPos({dest[1] + pawn_move, dest[2] + j - k})
       bag.takeObject({position = pos, smooth = false,
           callback_function = function(obj) callback(obj, ptypes[i]) end})
     end
   else
-    passTurn()
+    passTurn(move)
   end
 end
 
-function passTurn()
+function undoMove(move)
+  -- TODO
+  -- must handle checks (game.b/w.in_check), last move highlights, time control,
+  -- graveyard, ep square, castling
+end
+
+local GRAVE_ORDER = {Q=1, R=2, B=3, N=4, P=5}
+function sendToGraveyard(coord, white)
+  local sq = squareAt(coord)
+  local item = {piece = sq.piece, ptype = sq.ptype}
+  local graveyard = white and game.white.graveyard or game.black.graveyard
+  local order_val = GRAVE_ORDER[item.ptype]
+
+  local function getGraveyardPosition(index, white, piece)
+    local file = 10.5 + math.floor((index - 1) / 5)
+    local rank = (index - 1) % 5
+    if white then
+      rank = 9 - rank
+    end
+    return coordToPos({rank, file}, piece, false, true)
+  end
+
+  local insert_pos = 1
+  for i=#graveyard,1,-1 do
+    if GRAVE_ORDER[graveyard[i].ptype] <= order_val then
+      insert_pos = i + 1
+      break
+    end
+    graveyard[i + 1] = graveyard[i]
+    graveyard[i + 1].piece.setPositionSmooth(
+      getGraveyardPosition(i + 1, sq.white, sq.piece),
+      false, true
+    )
+  end
+  graveyard[insert_pos] = item
+  graveyard[insert_pos].piece.setPositionSmooth(
+    getGraveyardPosition(insert_pos, sq.white, sq.piece),
+    false, true
+  )
+end
+
+function reanimateFromGraveyard(ptype, coord)
+
+end
+
+function passTurn(last_move)
   local next_player = game.white_to_move and game.black or game.white
   local next_is_white = not game.white_to_move
 
   local hasMoves = generateMoves(next_is_white)
 
   local game_over_code, msg
+  local append
   game.white.in_check, game.black.in_check = false, false
   if isCheck(next_is_white) then
     highlightCoord(next_player.king, "#FF000088")
@@ -661,8 +735,10 @@ function passTurn()
       local winner = next_is_white and 'Black' or 'White'
       msg = 'by checkmate'
       game_over_code = not next_is_white
+      append = '#'
     else
       broadcastToAll('Check!', {1,1,1})
+      append = '+'
     end
   else
     if not hasMoves then
@@ -672,6 +748,10 @@ function passTurn()
 
   highlightCoord(game.last_move_from, "#FFFF0055")
   highlightCoord(game.last_move_to, "#FFFF0055")
+
+  if append then last_move.append = append end
+  table.insert(game.history, last_move)
+  printToAll(toPGN())
 
   if msg then
     gameOver(game_over_code, msg)
@@ -702,6 +782,19 @@ function passTurn()
       end
     end
   end
+end
+
+function toPGN()
+  local result = {}
+  for i=1,#game.history,2 do
+    local turn_string = tostring((i + 1) / 2) .. '. ' .. getSAN(game.history[i])
+    if game.history[i + 1] then
+      turn_string = turn_string .. ' ' .. getSAN(game.history[i + 1])
+    end
+
+    table.insert(result, turn_string)
+  end
+  return table.concat(result, '\n')
 end
 
 function generateMoves(white)
@@ -777,9 +870,12 @@ function undisplayMoves()
       setButtonEnabled(move.dest, false)
       squareAt(move.dest).trigger_move = nil
     end
+    sq.piece.drop()
     sq.piece.setVelocity({0,0,0})
+    sq.piece.setAngularVelocity({0,0,0})
+    sq.piece.setRotation({0,0,0})
+    sq.piece.setPositionSmooth(coordToPos(active, sq.piece), false, true)
     sq.piece.use_gravity = true
-    sq.piece.setPositionSmooth(coordToPos(active, sq.ptype), false, true)
     active = nil
   end
 end
@@ -822,7 +918,7 @@ function enter(list, from_coord, to_coord, special)
     local move = Move(
       from_coord, to_coord,
       squareAt(from_coord).ptype,
-      squareAt(to_coord).ptype,
+      en_passant and 'P' or squareAt(to_coord).ptype,
       special
     )
     table.insert(list, move)
@@ -1242,11 +1338,24 @@ end
 
 local pos_start = 5.95
 local pos_step = pos_start * 2 / 7.0
-function coordToPos(coord, ptype, raise)
+local RAISE_HEIGHT = 1
+function coordToPos(coord, piece, raise, off_board)
   local x = -pos_start + pos_step * (coord[2] - 1)
   local z = -pos_start + pos_step * (coord[1] - 1)
-  return {x, INFO[game.material][ptype].height + (raise and 1 or 0), z}
+
+  local table_obj = Tables.getTableObject()
+  local y = table_obj.getBounds().center.y + table_obj.getBounds().size.y / 2
+  if not off_board then y = y + self.getBounds().size.y end
+  if piece then
+    y = y + piece.getBounds().size.y / 2
+  else
+    y = y + 5
+  end
+  if raise then y = y + RAISE_HEIGHT end
+
+  return {x, y, z}
 end
+
 function coordEquals(a, b)
   if not a then return not b end
   if not b then return false end
@@ -1265,7 +1374,7 @@ function raisePieceAt(coord)
   local sq = squareAt(coord)
   sq.piece.setVelocity({0,0,0})
   sq.piece.setAngularVelocity({0,0,0})
-  sq.piece.setPositionSmooth(coordToPos(coord, sq.ptype, true), false, true)
+  sq.piece.setPositionSmooth(coordToPos(coord, sq.piece, true), false, true)
 end
 
 function highlightCoord(coord, color)
